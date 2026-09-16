@@ -327,6 +327,7 @@ compute_percent_ttest(
   label = paste0("(", YEAR, " Basal)")
 )
 
+
 # =============================================================================
 # Species observation counts (current year, Basal)
 # Lumped to the top species by cover so the chart and legend are readable;
