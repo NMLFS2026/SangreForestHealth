@@ -1,0 +1,10 @@
+{
+  "name": "R",
+  "image": "ghcr.io/rocker-org/devcontainer/r-ver:4",
+  "postCreateCommand": "Rscript -e 'install.packages(c(\"languageserver\", \"dplyr\", \"tidyr\", \"stringr\", \"ggplot2\", \"scales\", \"vegan\", \"purrr\", \"openxlsx\"))'",
+  "customizations": {
+    "vscode": {
+      "extensions": ["REditorSupport.r"]
+    }
+  }
+}
