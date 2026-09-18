@@ -11,9 +11,7 @@ gitcreds::gitcreds_set()
 usethis::use_git_ignore()
 
 
-# =============================================================================
 # VEGW Vegetation Monitoring Analysis
-# =============================================================================
 
 library(dplyr)
 library(tidyr)
@@ -24,44 +22,26 @@ library(vegan)
 library(purrr)
 library(openxlsx)
 
-# -----------------------------------------------------------------------------
 # Config -- change these two to rerun the whole script for a different year
-# -----------------------------------------------------------------------------
 YEAR       <- 2026   # current field season to analyze
 PRIOR_YEAR <- 2025   # comparison year for year-over-year sections
 
-# Set to a name (e.g. "Ben Muher") to restrict every analysis to one person's
-# records, or leave NA to include everyone. NOTE: the old script hardcoded
-# DataEntry == "Ben Muher" in almost every chunk. Since 2026 data was entered
-# by several people, this defaults to NA (no filter) so 2026 records aren't
-# silently dropped. Set it explicitly if you want a single-entrant subset.
-DATA_ENTRY_FILTER <- NA
-
-# Folder every plot gets saved into, in addition to showing in the Plots pane.
+# Folder every plot gets saved into, in addition to showing in the Plots pane
 FIGURES_DIR <- "Figures"
 if (!dir.exists(FIGURES_DIR)) dir.create(FIGURES_DIR, recursive = TRUE)
 
-# -----------------------------------------------------------------------------
-# Load data -- reads directly from the Data/ folder, no setwd() needed as
-# long as this script is run from the project root (e.g. via the .Rproj file)
-# -----------------------------------------------------------------------------
+# Load data
 veg_raw <- read.xlsx("Data/VEG_features.xlsx")
 
-# -----------------------------------------------------------------------------
+
 # Site groupings and shared palette -- defined once and reused everywhere
-# below, instead of being retyped in every chunk
-# -----------------------------------------------------------------------------
 treated_sites   <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
 untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
 
-# How many individual species to show by name in each chart; everything else
-# is grouped into "Other". With ~90 species in the data, showing all of them
-# in a stacked bar produces an unreadable wall of slivers and an unreadable
-# legend -- capping it is what actually makes these report-ready.
+# Just show 12 top species and the rest are other
 TOP_N_SPECIES <- 12
 
-# One consistent look for every plot in this script, set once instead of
-# repeating theme() calls in every plotting call.
+# Theme
 theme_set(
   theme_minimal(base_size = 13) +
     theme(
@@ -72,14 +52,7 @@ theme_set(
     )
 )
 
-# -----------------------------------------------------------------------------
-# Cleaning + shared helper functions
-# -----------------------------------------------------------------------------
-
-# One cleaning function replaces the mutate(Site = trimws(toupper(Site)), ...)
-# block that was copy-pasted at the top of nearly every chunk in the old
-# script. Site is parsed from PlotID (e.g. SFF1V-208 -> SFF1) since the new
-# file has no standalone Site column.
+# cleaning
 clean_veg <- function(df,
                       year = NULL,
                       cover_type = NULL,
@@ -110,9 +83,7 @@ clean_veg <- function(df,
   out
 }
 
-# Number of plots actually surveyed per site, for a given slice of data.
-# Replaces the old hardcoded "multiply certain sites by 4" / "divide by 6 or
-# 24" logic, which broke silently whenever plot counts changed year to year.
+# Number of plots actually surveyed per site
 plots_per_site <- function(df) {
   df %>% distinct(Site, PlotID) %>% count(Site, name = "n_plots")
 }
@@ -141,8 +112,7 @@ compute_percent_ttest <- function(df, label = "") {
   print(t.test(Percent ~ Treatment, data = df))
 }
 
-# Average percent cover per species per site, normalized by how many plots
-# were actually surveyed at that site (replaces manual divide-by-6-or-24).
+# Average percent cover per species per site noramlized by plits per site
 avg_percent_by_site_species <- function(df) {
   n_plots <- plots_per_site(df)
   df %>%
@@ -152,10 +122,7 @@ avg_percent_by_site_species <- function(df) {
     mutate(AvgPercentCover = TotalPercent / n_plots)
 }
 
-# Picks the TOP_N_SPECIES species with the most total cover (weight_col
-# defaults to "Percent"), broken deterministically by arrange()+slice_head()
-# rather than slice_max() -- slice_max() includes every tied species by
-# default, so a tie for 8th place could silently inflate "top 8" to 10+.
+# Picks the TOP_N_SPECIES species with the most total cover (weight_col defaults to "Percent"), broken deterministically by arrange()+slice_head() rather than slice_max() -- slice_max() includes every tied species by default, so a tie for 8th place could silently inflate "top 8" to 10+.
 top_species_by_cover <- function(df, top_n = TOP_N_SPECIES, weight_col = "Percent") {
   df %>%
     group_by(Species) %>%
