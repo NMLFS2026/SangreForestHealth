@@ -2,15 +2,6 @@
 # 9/16/2026
 # Angie Taylor
 
-# Github setup
-
-usethis::create_github_token()
-
-gitcreds::gitcreds_set()
-
-usethis::use_git_ignore()
-
-
 # VEGW Vegetation Monitoring Analysis
 
 library(dplyr)
@@ -112,7 +103,7 @@ compute_percent_ttest <- function(df, label = "") {
   print(t.test(Percent ~ Treatment, data = df))
 }
 
-# Average percent cover per species per site noramlized by plits per site
+# Average percent cover per species per site noramlized by plots per site
 avg_percent_by_site_species <- function(df) {
   n_plots <- plots_per_site(df)
   df %>%
@@ -132,31 +123,19 @@ top_species_by_cover <- function(df, top_n = TOP_N_SPECIES, weight_col = "Percen
     pull(Species)
 }
 
-# Collapses every species not in top_species into "Other". Kept as a plain
-# character column (not a factor) here, so a later count()/summarise() call
-# correctly merges every lumped species into one "Other" total rather than
-# ggplot's default per-chart legend behavior interfering with the grouping.
+# Collapses every species not in top_species into "Other"
+
 lump_species <- function(df, top_species) {
   mutate(df, Species = if_else(Species %in% top_species, Species, "Other"))
 }
 
-# A small, distinguishable color set for a fixed species order (top species +
-# "Other" in grey). Uses ggplot's own hue wheel (scales::hue_pal) rather than
-# a fixed ColorBrewer palette -- brewer palettes like "Set2"/"Dark2" include a
-# built-in grey once you get to ~8 colors, which visually collided with the
-# "Other" grey and made a real species disappear into the "Other" block.
+# Color set 
 species_palette <- function(species_order) {
   n <- length(species_order) - 1  # excluding "Other"
   setNames(c(hue_pal()(n), "grey55"), species_order)
 }
 
-# Stacked bar chart of species counts or cover, styled for a report: capped
-# color legend, bold title, clean gridlines, no clipped bars (y-axis
-# auto-scales). species_order is the FULL top-species + "Other" list decided
-# once upstream (see top_species_by_cover()), so a given species always maps
-# to the same color everywhere -- but the legend itself only lists whatever
-# actually has a bar in THIS chart (drop = TRUE, ggplot's default), so a
-# species with zero rows here doesn't clutter the key.
+# Stacked bar chart 
 plot_species_stack <- function(df, x_var, y_var, title, y_lab, species_order) {
   df <- mutate(df, Species = factor(Species, levels = species_order))
   ggplot(df, aes(x = .data[[x_var]], y = .data[[y_var]], fill = Species)) +
@@ -166,9 +145,7 @@ plot_species_stack <- function(df, x_var, y_var, title, y_lab, species_order) {
     labs(title = title, x = NULL, y = y_lab, fill = "Species")
 }
 
-# Displays a plot in the Plots pane AND saves it to Figures/, so nothing is
-# lost once the session closes. filename should NOT include a folder or
-# extension, e.g. "basal_counts_2026" -> Figures/basal_counts_2026.png
+# Displays a plot in the Plots pane AND saves it to Figures
 show_and_save <- function(plot, filename, width = 9, height = 6) {
   print(plot)
   ggsave(
@@ -209,9 +186,7 @@ compute_diversity_ttest <- function(df, index = c("shannon", "simpson"), label =
   invisible(diversity_values)
 }
 
-# Per-plot Simpson evenness and Shannon evenness (Pielou's J) at the Species
-# level, plus a t-test. (Lifeform-level evenness removed -- this year's data
-# has no Lifeform column.)
+# Per-plot Simpson evenness and Shannon evenness (Pielou's J) at the Species level, plus a t-test)
 compute_evenness_ttest <- function(df, label = "") {
   per_plot <- df %>%
     group_by(PlotID, Site, Treatment, Species) %>%
@@ -234,10 +209,7 @@ compute_evenness_ttest <- function(df, label = "") {
   invisible(per_plot)
 }
 
-# Fisher's exact test for presence/absence by treatment, for a set of species
-# (or all species if species_list is NULL). Denominators (plots per treatment)
-# are computed dynamically instead of hardcoded (the old script used fixed
-# values like 72/71 that would silently go stale in a new year).
+# Fisher's exact test for presence/absence by treatment
 run_fisher_presence <- function(df, species_list = NULL, p_threshold = NULL) {
   if (is.null(species_list)) species_list <- unique(df$Species)
   
@@ -283,9 +255,8 @@ run_fisher_presence <- function(df, species_list = NULL, p_threshold = NULL) {
   results
 }
 
-# =============================================================================
 # Basal cover: richness and percent cover (current year)
-# =============================================================================
+
 basal_current <- clean_veg(veg_raw, year = YEAR, cover_type = "Basal")
 
 compute_richness_ttest(basal_current, label = paste0("(", YEAR, ")"))
@@ -295,12 +266,8 @@ compute_percent_ttest(
 )
 
 
-# =============================================================================
 # Species observation counts (current year, Basal)
-# Lumped to the top species by cover so the chart and legend are readable;
-# see top_species_by_cover()/lump_species(). Underlying stats above still use
-# the full species list -- lumping is for the charts only.
-# =============================================================================
+
 top_species_current   <- top_species_by_cover(basal_current)
 species_order_current <- c(top_species_current, "Other")
 basal_current_lumped  <- lump_species(basal_current, top_species_current)
@@ -319,11 +286,10 @@ p_counts_treated_site <- plot_species_stack(counts_by_treated_site, "Site", "n",
                                             "Species Observation Count", species_order_current)
 show_and_save(p_counts_treated_site, paste0("basal_species_counts_by_treated_site_", YEAR))
 
-# =============================================================================
 # Average percent cover per species per site (current year, Basal)
 # Normalized by plots actually surveyed at each site (see
 # avg_percent_by_site_species()), rather than a hardcoded x4/x6/x24 adjustment.
-# =============================================================================
+
 avg_cover_treated <- basal_current_lumped %>%
   filter(Site %in% treated_sites, !is.na(Percent)) %>%
   avg_percent_by_site_species()
@@ -342,18 +308,18 @@ p_untreated <- plot_species_stack(avg_cover_untreated, "Site", "AvgPercentCover"
 show_and_save(p_treated, paste0("avg_basal_cover_treated_", YEAR))
 show_and_save(p_untreated, paste0("avg_basal_cover_untreated_", YEAR))
 
-# =============================================================================
+
 # Diversity indices (current year, Basal)
-# =============================================================================
+
 compute_diversity_ttest(basal_current, index = "shannon", label = paste0("(", YEAR, " Basal)"))
 compute_diversity_ttest(basal_current, index = "simpson", label = paste0("(", YEAR, " Basal)"))
 compute_evenness_ttest(filter(basal_current, !is.na(Percent)), label = paste0("(", YEAR, " Basal)"))
 
-# =============================================================================
+
 # Year-over-year species counts (current vs prior year, Basal)
 # Top species picked fresh over the combined two-year pool, so the legend is
 # consistent between the two bars in this specific chart.
-# =============================================================================
+
 basal_prior      <- clean_veg(veg_raw, year = PRIOR_YEAR, cover_type = "Basal")
 basal_both       <- bind_rows(basal_current, basal_prior)
 top_species_both <- top_species_by_cover(basal_both)
@@ -376,9 +342,9 @@ p_years_untreated <- plot_species_stack(counts_untreated_years, "Year", "n",
                                         species_order_both)
 show_and_save(p_years_untreated, paste0("basal_species_counts_untreated_", PRIOR_YEAR, "_vs_", YEAR))
 
-# =============================================================================
+
 # Year-over-year percent cover t-tests (Basal and Aerial)
-# =============================================================================
+
 for (yr in c(PRIOR_YEAR, YEAR)) {
   for (ct in c("Basal", "Aerial")) {
     df_yr <- clean_veg(veg_raw, year = yr, cover_type = ct, require_species = FALSE) %>%
@@ -389,15 +355,15 @@ for (yr in c(PRIOR_YEAR, YEAR)) {
   }
 }
 
-# =============================================================================
+
 # Presence/absence (Fisher's exact test, current year)
-# =============================================================================
+
 species_of_interest <- c(
   "CARXXX", "ELYELY", "MUHMON", "BOUGRA", "BROCIL",
-  "DANSPI", "KOEMAC", "MUHTRI", "POAFEN"
+  "DANSPI", "KOEMAC", "MUHTRI", "POAFEN
 )
 
-cat("\nFisher's exact tests, species of interest:\n")
+cat("nFisher's exact tests, species of interest:\n")
 print(run_fisher_presence(basal_current, species_list = species_of_interest))
 
 cat("\nFisher's exact tests, all species, p < 0.05 only:\n")
