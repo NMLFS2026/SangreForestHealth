@@ -1,10 +1,20 @@
 {
-  "name": "R",
-  "image": "ghcr.io/rocker-org/devcontainer/r-ver:4",
-  "postCreateCommand": "Rscript -e 'install.packages(c(\"languageserver\", \"dplyr\", \"tidyr\", \"stringr\", \"ggplot2\", \"scales\", \"vegan\", \"purrr\", \"openxlsx\"))'",
+  "name": "SangreForestHealth",
+
+  // Image with R, tidyverse, and pandoc (needed to knit .Rmd)
+  "image": "ghcr.io/rocker-org/devcontainer/tidyverse:4.4",
+
   "customizations": {
     "vscode": {
-      "extensions": ["REditorSupport.r"]
+      "extensions": [
+        "REditorSupport.r"
+      ],
+      "settings": {
+        "r.plot.useHttpgd": true
+      }
     }
-  }
+  },
+
+  // R packages the extension uses, plus the ones your script needs
+  "postCreateCommand": "Rscript -e 'install.packages(c(\"languageserver\", \"httpgd\", \"vegan\", \"openxlsx\", \"writexl\"), repos = \"https://cloud.r-project.org\")'"
 }

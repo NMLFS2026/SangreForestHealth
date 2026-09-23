@@ -1,0 +1,1977 @@
+---
+#title: "treemort2025" #-------- Maura is messing with this rn 
+#output: html_document
+#date: "2025-10-20"
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Directory
+data_dir <- "/workspaces/SangreForestHealth/Data"
+stopifnot(dir.exists(data_dir))
+
+#Packages
+required_pkgs <- c("dplyr", "ggplot2", "openxlsx", "tidyr", "stringr", "vegan",
+                   "readr", "scales", "gridExtra", "grid", "purrr",
+                   "writexl", "RColorBrewer", "gtable")
+
+missing_pkgs <- setdiff(required_pkgs, rownames(installed.packages()))
+if (length(missing_pkgs) > 0) {
+  install.packages(missing_pkgs, repos = "https://cloud.r-project.org")
+}
+invisible(lapply(required_pkgs, library, character.only = TRUE))
+
+
+#Tree_features
+tree_features <- read.xlsx(file.path(data_dir, "Tree_features_9_18_26.xlsx"))
+
+#Trees table
+trees_table <- read.xlsx(file.path(data_dir, "Trees_9_18_26.xlsx"))
+```
+
+```{r create_frame}
+trees_2026a <- tree_features %>%
+  filter(Year == 2026) %>%
+  mutate(Site = str_extract(TreeID, "^[^-]+")) %>% #make a site col
+  left_join(trees_table, by = "TreeID") %>% #combine tables
+  select(TreeID, Date, Site, SpeciesID, DBH = Diameter,  OG = Old_growth, Tree_condition, Year) %>% 
+  mutate(OGness = case_when(  #classification system by Ben Muher
+    (is.na(OG) | OG == "") & DBH > 30 ~ 3, #trees with missing OG data and DBH > 30 are assigned 3
+    is.na(OG) | OG == "" ~ 1, #trees with missing OG data and DBH <= 30 are assigned 1
+    toupper(OG) == "Y" ~ 2, #trees with OG = Y are assigned 2
+    TRUE ~ NA_real_ # all other trees DBH <= 30 are assigned NA
+  ))
+
+View(trees_2026a)
+# the DBH here is just whatever is listed in the tree_features table
+#DBH does need to be delt with!
+```
+
+```{r dbh}
+trees_2026 <- trees_2026a %>%
+ mutate(Date_parsed = as.Date(Date, format = "%m/%d/%Y")) %>%
+  arrange(TreeID, Date_parsed) %>%
+  group_by(TreeID) %>%
+  fill(DBH, .direction = "down") %>%
+  ungroup() %>%
+  select(-Date_parsed)
+
+View(trees_2026)
+
+```
+
+```{r summary table}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+# summary_table <- trees_2026 %>%
+#   mutate(Treatment = case_when(
+#     Site %in% treated_sites ~ "Treated",
+#     Site %in% untreated_sites ~ "Untreated",
+#     TRUE ~ NA_character_
+#   )) %>%
+#   filter(!is.na(Treatment)) %>%
+#   group_by(Treatment) %>%
+#   summarise(
+#     `Tree count` = n(),  # total trees
+#     `MOG count` = sum(OGness %in% c(2,3), na.rm = TRUE),  # trees where OGness = 2 or 3
+#     `MOG live count` = sum(OGness %in% c(2,3) & !Tree_condition %in% c(2,5,6,8,9,10,11,12), na.rm = TRUE),
+#     `Surveyed ha` = 3  # fixed value for both
+#   )
+# summary_table
+```
+
+```{r og table}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+# the OGness table is commented out because Ben created a column in the data that isn't 
+#easily replicable without the code. Will need to recreate 
+# og_table <- trees_2026 %>%
+#   mutate(Treatment = case_when(
+#     Site %in% treated_sites ~ "Treated",
+#     Site %in% untreated_sites ~ "Untreated",
+#     TRUE ~ NA_character_
+#   )) %>%
+#   filter(OGness %in% c(2, 3)) %>%
+#   filter(!Tree_condition %in% c(2, 5, 6, 8, 9, 10, 11, 12)) %>%
+#   group_by(SpeciesID, Treatment) %>%
+#   summarise(Count = n(), .groups = "drop") %>%
+#   pivot_wider(
+#     names_from = Treatment,
+#     values_from = Count,
+#     values_fill = 0
+#   )
+
+# og_table
+```
+```{r tussock moth analysis}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+tuss25_analysis2 <- trees_2026 %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ NA_character_
+  ))
+
+table_total <- tuss25_analysis2 %>%
+  group_by(SpeciesID, Treatment) %>%
+  summarise(Total_Trees = n(), .groups = "drop") %>%
+  pivot_wider(
+    names_from = Treatment,
+    values_from = Total_Trees,
+    values_fill = 0
+  )
+
+table_total
+
+table_condition6 <- tuss25_analysis2 %>%
+  filter(Tree_condition %in% c(6)) %>%
+  group_by(SpeciesID, Treatment) %>%
+  summarise(Trees_Cond_1_3_7 = n(), .groups = "drop") %>%
+  pivot_wider(
+    names_from = Treatment,
+    values_from = Trees_Cond_1_3_7,
+    values_fill = 0
+  )
+```
+```{r new mort}
+trees2026cond6 <- trees_2026 %>%
+  filter(Tree_condition == 6) %>%
+  select(TreeID, SpeciesID)
+
+```
+```{r species counts}
+species_counts2026 <- trees_2026 %>%
+  group_by(SpeciesID) %>%
+  summarise(Total_Trees = n())
+```
+
+```{r mort by species}
+###UNUSED
+# Count how many trees with condition 6 per species
+species_cond6_counts <- trees2026cond6 %>%
+  group_by(SpeciesID) %>%
+  summarise(Count = n())
+
+# Plot
+ggplot(species_cond6_counts, aes(x = SpeciesID, y = Count)) +
+  geom_bar(stat = "identity", fill = "tomato") +
+  labs(title = "New Deaths by species, 2026",
+       x = "Species ID",
+       y = "Number of Trees with Condition 6") +
+  theme_minimal()
+```
+```{r}
+###UNUSED
+
+species_counts2026 <- tree_features %>%
+  filter(Year == 2026) %>%
+  group_by(SpeciesID) %>%
+  summarise(Total = n())
+
+species_cond6_2026 <- tree_features %>%
+  filter(Year == 2026, Tree_condition == 6) %>%
+  group_by(SpeciesID) %>%
+  summarise(New_Mortalities = n())
+
+percent_6_2026 <- species_counts2026 %>%
+  left_join(species_cond6_2026, by = "SpeciesID") %>%
+  mutate(New_Mortalities = ifelse(is.na(New_Mortalities), 0, New_Mortalities),
+         Percent_New_Mortality = (New_Mortalities / Total) * 100)
+
+ggplot(percent_6_2026, aes(x = SpeciesID, y = Percent_New_Mortality)) +
+  geom_bar(stat = "identity", fill = "dodgerblue") +
+  labs(title = "Percentage of New Deaths by species, 2026",
+       x = "Species ID",
+       y = "Percent (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+tree_features <- tree_features %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ "Unknown"
+  ))
+
+species_counts2026 <- tree_features %>%
+  filter(Year == 2026) %>%
+  group_by(Treatment, SpeciesID) %>%
+  summarise(Total = n(), .groups = "drop")
+
+species_cond6_2026 <- tree_features %>%
+  filter(Year == 2026, Tree_condition == 6) %>%
+  group_by(Treatment, SpeciesID) %>%
+  summarise(New_Mortalities = n(), .groups = "drop")
+
+percent_6_2026 <- species_counts2026 %>%
+  left_join(species_cond6_2026, by = c("Treatment", "SpeciesID")) %>%
+  mutate(
+    New_Mortalities = ifelse(is.na(New_Mortalities), 0, New_Mortalities),
+    Percent_New_Mortality = (New_Mortalities / Total) * 100
+  )
+```
+```{r stats by site}
+
+site_totals_2026 <- tree_features %>%
+  filter(Year == 2026) %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = n())
+
+site_condition6_2026 <- tree_features %>%
+  filter(Year == 2026, Tree_condition == 6) %>%
+  group_by(Site) %>%
+  summarise(Condition6_Trees = n())
+
+site_condition137_2026 <- tree_features %>%
+  filter(Year == 2026, Tree_condition %in% c(1, 3, 7)) %>%
+  group_by(Site) %>%
+  summarise(Condition137_Trees = n())
+
+site_percent_2026 <- site_condition6_2026 %>%
+  full_join(site_condition137_2026, by = "Site") %>%
+  mutate(
+    Condition6_Trees = ifelse(is.na(Condition6_Trees), 0, Condition6_Trees),
+    Condition137_Trees = ifelse(is.na(Condition137_Trees), 0, Condition137_Trees),
+    Percent_Condition6 = (Condition6_Trees / (Condition6_Trees + Condition137_Trees)) * 100
+  )
+
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+site_percent_2026 <- site_percent_2026 %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ "Other"
+  ))
+
+Newdeaths<-ggplot(site_percent_2026, aes(x = reorder(Site, Percent_Condition6), y = Percent_Condition6, fill = Treatment)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Treated" = "#e6b855", "Untreated" = "#435e55ff", "Other" = "grey80")) +
+  labs(
+    title = NULL,
+    x = "",
+    y = "Percent",
+    fill = "Treatment Group"
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5))
+Newdeaths
+
+
+```
+```{r}
+filtered_2026 <- tree_features %>%
+  filter(Year == 2026, !Tree_condition %in% c(2, 5, 8, 9, 10, 11, 12))
+
+site_totals_filtered <- filtered_2026 %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = n())
+
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4") 
+
+site_totals_filtered <- site_totals_filtered %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ "Other"  # Optional: catch sites not in either group
+  ))
+
+ggplot(site_totals_filtered, aes(x = reorder(Site, Total_Trees), y = Total_Trees, fill = Treatment)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Treated" = "#e6b855", "Untreated" =  "#435e55ff", "Other" = "grey80")) +
+  labs(title = "Total Live Trees per Site in 2026",
+       x = "Site",
+       y = "Number of Trees",
+       fill = "Treatment Group") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r, fig.width=8, fig.height=2.5}
+filtered_2026 <- tree_features %>%
+  filter(Year == 2026, !Tree_condition %in% c(2, 5, 8, 9, 10, 11, 12))
+
+site_totals_filtered <- filtered_2026 %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = n())
+
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")  
+adjust_sites <- c("SFF1", "SFF5", "SFF7", "SFF10", "SFF3", "SFF4", "SFF6", "SFF9")
+
+site_totals_filtered <- site_totals_filtered %>%
+  mutate(Total_Trees = ifelse(Site %in% adjust_sites, Total_Trees * 4, Total_Trees))
+
+
+site_totals_filtered <- site_totals_filtered %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ "Other"  # Optional: catch sites not in either group
+  ))
+
+ggplot(site_totals_filtered, aes(x = reorder(Site, Total_Trees), y = Total_Trees, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black") +
+  scale_fill_manual(values = c("Treated" = "#e6b855", "Untreated" =  "#435e55ff", "Other" = "grey80")) +
+  labs(title = "Tree density by plot, 2026",
+       x = "",
+       y = "Trees/ha",
+       fill = "Treatment Group") +
+   theme_classic() +
+  theme(legend.position = "none")+
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title.y = element_text(size = 12, face = "plain"),
+  ) +
+  coord_cartesian(ylim = c(0, 4000))
+``` 
+```{r, fig.width=8, fig.height=2.5}
+filtered_2026 <- tree_features %>%
+  filter(
+    Year == 2026,
+    !Tree_condition %in% c(2, 5, 8, 9, 10, 11, 12),
+    (DBH > 30 | OG == "Y")
+  )
+
+site_totals_filtered <- filtered_2026 %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = n())
+
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+site_totals_filtered <- site_totals_filtered %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ "Other"
+  ))
+
+adjust_sites <- c("SFF1", "SFF5", "SFF7", "SFF10", "SFF3", "SFF4", "SFF6", "SFF9")
+
+site_totals_filtered <- site_totals_filtered %>%
+  mutate(Total_Trees = ifelse(Site %in% adjust_sites, Total_Trees * 4, Total_Trees))
+
+ggplot(site_totals_filtered, aes(x = reorder(Site, Total_Trees), y = Total_Trees, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black") +
+  scale_fill_manual(values = c("Treated" = "#e6b855", "Untreated" = "#435e55ff", "Other" = "grey80")) +
+  labs(title = "Live mature/old growth density per plot, 2026",
+       x = "",
+       y = "Live MOG density/ha",
+       fill = "Treatment Group") +
+  theme_classic() +
+  theme(legend.position = "none")+
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 1),
+    axis.title.y = element_text(size = 12, face = "plain")
+  ) +
+  coord_cartesian(ylim = c(0, 200))
+```
+```{r}
+filtered_2026 <- tree_features %>%
+  filter(
+    Year == 2026,
+    (DBH > 30 | OG == "Y")
+  )
+
+site_totals_filtered <- filtered_2026 %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = n())
+
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+site_totals_filtered <- site_totals_filtered %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ "Other"
+  ))
+
+ggplot(site_totals_filtered, aes(x = reorder(Site, Total_Trees), y = Total_Trees, fill = Treatment)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Treated" = "#1b9e77", "Untreated" = "#d95f02", "Other" = "grey80")) +
+  labs(title = "Total OG or MOG per Site in 2026 (DBH > 30 or OG == 'Y', Excl. Conditions 8–12)",
+       x = "Site",
+       y = "Number of Trees",
+       fill = "Treatment Group") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r, fig.width=8, fig.height=2.5}
+filtered_2026 <- tree_features %>%
+  filter(
+    Year == 2026,
+    (DBH > 30 | OG == "Y"),
+  !Tree_condition %in% c(2, 5, 8, 9, 10, 11, 12))
+
+site_totals_filtered <- filtered_2026 %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = n())
+
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+site_totals_filtered <- site_totals_filtered %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ "Other"
+  ))
+
+adjust_sites <- c("SFF1", "SFF5", "SFF7", "SFF10", "SFF3", "SFF4", "SFF6", "SFF9")
+
+site_totals_filtered <- site_totals_filtered %>%
+  mutate(Total_Trees = ifelse(Site %in% adjust_sites, Total_Trees * 4, Total_Trees))
+
+
+ggplot(site_totals_filtered, aes(x = reorder(Site, Total_Trees), y = Total_Trees, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black") +
+  scale_fill_manual(values = c("Treated" = "#e6b855", "Untreated" = "#435e55ff",  "Other" = "grey80")) +
+  labs(title = "Mature/old growth density by plot, 2026",
+       x = "",
+       y = "MOG/ha",
+       fill = "Treatment Group") +
+   theme_classic() +
+  theme(legend.position = "none")+
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 1),
+    axis.title.y = element_text(size = 12, face = "plain")
+  ) +
+  coord_cartesian(ylim = c(0, 200))
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+site_totals_filtered$Treatment <- ifelse(
+  site_totals_filtered$Site %in% treated_sites, "Treated", "Untreated"
+)
+
+
+
+cat("\nT-test Live MOG densities, Treated vs Untreated (2026):\n")
+t.test(Total_Trees ~ Treatment, data = site_totals_filtered)
+```
+```{r}
+filtered_2026 <- tree_features %>%
+  filter(Year == 2026)
+
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+summary_2026ALLCOND <- filtered_2026 %>%
+  filter(Site %in% c(treated_sites, untreated_sites)) %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = n(), .groups = 'drop') %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated"
+  )) %>%
+  group_by(Treatment) %>%
+  summarise(
+    Sum_Trees = sum(Total_Trees),           # total trees for the treatment
+    SE_Trees = sqrt(sum((Total_Trees - mean(Total_Trees))^2)) / sqrt(n()),  # standard error of the sum approximation
+    Trees_Divided_By_3 = Sum_Trees / 3,
+    SE_Divided_By_3 = SE_Trees / 3,
+    .groups = 'drop'
+  )
+
+fig1 <- ggplot(summary_2026ALLCOND, aes(x = Treatment, y = Trees_Divided_By_3, fill = Treatment)) +
+  geom_bar(stat = "identity", color = 'black') +
+  geom_errorbar(aes(ymin = Trees_Divided_By_3 - SE_Divided_By_3, 
+                    ymax = Trees_Divided_By_3 + SE_Divided_By_3),
+                width = 0.2) +
+  ylim(0, 1800) +
+  scale_fill_manual(values = c("Treated" = "#e6b855", "Untreated" = "#435e55ff")) +
+  labs(title = "Tree density",
+       x = "",
+       y = "Trees/ha") +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14),       # axis tick labels
+    axis.title = element_text(size = 16),      # y-axis title (no x label)
+    legend.title = element_text(size = 16),
+    legend.text = element_text(size = 14)
+  )+
+  theme(legend.position = "none",
+        plot.title = element_text(size = 18))
+
+
+fig1
+
+
+
+```
+```{r}
+filtered_2026 <- tree_features %>%
+  filter(Year == 2026, Tree_condition %in% c(1,3,7))
+
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+summary_2026LIVEALLCOND <- filtered_2026 %>%
+  filter(Site %in% c(treated_sites, untreated_sites)) %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = n(), .groups = 'drop') %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated"
+  )) %>%
+  group_by(Treatment) %>%
+  summarise(
+    Sum_Trees = sum(Total_Trees),           # total trees for the treatment
+    SE_Trees = sqrt(sum((Total_Trees - mean(Total_Trees))^2)) / sqrt(n()),  # standard error of the sum approximation
+    Trees_Divided_By_3 = Sum_Trees / 3,
+    SE_Divided_By_3 = SE_Trees / 3,
+    .groups = 'drop'
+  )
+
+
+
+fig1.live <- ggplot(summary_2026LIVEALLCOND, aes(x = Treatment, y = Trees_Divided_By_3, fill = Treatment)) +
+  geom_bar(stat = "identity", color = 'black') +
+  geom_errorbar(aes(ymin = Trees_Divided_By_3 - SE_Divided_By_3, 
+                    ymax = Trees_Divided_By_3 + SE_Divided_By_3),
+                width = 0.2) +
+  ylim(0, 1800) +
+  scale_fill_manual(values = c("Treated" = "#e6b855", "Untreated" = "#435e55ff")) +
+  labs(title = "Live tree density",
+       x = "",
+       y = "Trees/ha") +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14),       # axis tick labels
+    axis.title = element_text(size = 16),      # y-axis title (no x label)
+    legend.title = element_text(size = 16),
+    legend.text = element_text(size = 14)
+  )+
+  theme(legend.position = "none",
+        plot.title = element_text(size = 18))
+fig1.live
+
+```
+```{r, eval=FALSE}
+densitiessss<-(fig1 + fig1.live)+ 
+  plot_layout(guides = "collect") &
+  theme(legend.position = "right")
+densitiessss
+
+
+
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+filtered_2026_og <- tree_features %>%
+  filter(Year == 2026, OG == "Y")
+
+site_tree_counts <- filtered_2026_og %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = n()) %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ "Other"
+  ))
+
+total_by_treatment <- site_tree_counts %>%
+  filter(Treatment != "Other") %>%
+  group_by(Treatment) %>%
+  summarise(Trees_Divided_By_3 = sum(Total_Trees) / 3)
+
+fig2 <- ggplot(total_by_treatment, aes(x = Treatment, y = Trees_Divided_By_3, fill = Treatment)) +
+    geom_bar(stat = "identity", color = 'black') +
+  ylim(0, 400) +
+  scale_fill_manual(values = c("Treated" = "#e6b855", "Untreated" = "#435e55ff")) +
+  labs(title = "Old growth density",
+       x = "",
+       y = "OG/ha") +
+    theme_classic() +
+  theme(
+    axis.text = element_text(size = 14),       # axis tick labels
+    axis.title = element_text(size = 16),      # y-axis title (no x label)
+    legend.title = element_text(size = 16),
+    legend.text = element_text(size = 14)
+  )+
+  theme(legend.position = "none",
+        plot.title = element_text(size = 18))
+
+fig2
+
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+filtered_2026_Mog <- tree_features %>%
+  filter(
+    Year == 2026,
+    (DBH > 30 | OG == "Y")
+  )
+
+
+
+summary_2026ALLMOG <- filtered_2026_Mog %>%
+  filter(Site %in% c(treated_sites, untreated_sites)) %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = n(), .groups = 'drop') %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated"
+  )) %>%
+  group_by(Treatment) %>%
+  summarise(
+    Sum_Trees = sum(Total_Trees),           # total trees for the treatment
+    SE_Trees = sqrt(sum((Total_Trees - mean(Total_Trees))^2)) / sqrt(n()),  # standard error of the sum approximation
+    Trees_Divided_By_3 = Sum_Trees / 3,
+    SE_Divided_By_3 = SE_Trees / 3,
+    .groups = 'drop'
+  )
+
+
+fig3 <- ggplot(summary_2026ALLMOG, aes(x = Treatment, y = Trees_Divided_By_3, fill = Treatment)) +
+  geom_bar(stat = "identity", color = 'black') +
+  geom_errorbar(aes(ymin = Trees_Divided_By_3 - SE_Divided_By_3, 
+                    ymax = Trees_Divided_By_3 + SE_Divided_By_3),
+                width = 0.2) +
+  ylim(0, 225) +
+  scale_fill_manual(values = c("Treated" = "#e6b855", "Untreated" = "#435e55ff")) +
+  labs(title = "Mature/old growth density",
+       x = "",
+       y = "Tot OG & MOG/ha") +
+  theme_classic() +
+ theme_classic() +
+  theme(
+    axis.text = element_text(size = 14),       # axis tick labels
+    axis.title = element_text(size = 16),      # y-axis title (no x label)
+    legend.title = element_text(size = 16),
+    legend.text = element_text(size = 14)
+  )+
+  theme(legend.position = "none",
+        plot.title = element_text(size = 18))
+
+fig3
+
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+filtered_2026_Moglive <- tree_features %>%
+  filter(
+    Year == 2026, Tree_condition %in% c(1,3,7), 
+    (DBH > 30 | OG == "Y")
+  )
+
+summary_2026MOGlive <- filtered_2026_Moglive %>%
+  filter(Site %in% c(treated_sites, untreated_sites)) %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = n(), .groups = 'drop') %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated"
+  )) %>%
+  group_by(Treatment) %>%
+  summarise(
+    Sum_Trees = sum(Total_Trees),           # total trees for the treatment
+    SE_Trees = sqrt(sum((Total_Trees - mean(Total_Trees))^2)) / sqrt(n()),  # standard error of the sum approximation
+    Trees_Divided_By_3 = Sum_Trees / 3,
+    SE_Divided_By_3 = SE_Trees / 3,
+    .groups = 'drop'
+  )
+
+fig3.live <- ggplot(summary_2026MOGlive, aes(x = Treatment, y = Trees_Divided_By_3, fill = Treatment)) +
+  geom_bar(stat = "identity", color = 'black') +
+  geom_errorbar(aes(ymin = Trees_Divided_By_3 - SE_Divided_By_3, 
+                    ymax = Trees_Divided_By_3 + SE_Divided_By_3),
+                width = 0.2) +
+  ylim(0, 225) +
+  scale_fill_manual(values = c("Treated" = "#e6b855", "Untreated" = "#435e55ff")) +
+  labs(title = "Live mature/old growth density",
+       x = "",
+       y = "Live OG & MOG/ha") +
+  theme_classic() +
+ theme_classic() +
+  theme(
+    axis.text = element_text(size = 14),       # axis tick labels
+    axis.title = element_text(size = 16),      # y-axis title (no x label)
+    legend.title = element_text(size = 16),
+    legend.text = element_text(size = 14)
+  )+
+  theme(legend.position = "none",
+        plot.title = element_text(size = 18))
+
+fig3.live
+```
+```{r, eval=FALSE}
+MOGGGGGGG<-(fig3 + fig3.live)+ 
+  plot_layout(guides = "collect") &
+  theme(legend.position = "right")
+MOGGGGGGG
+```
+
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+filtered_2026_LMog <- tree_features %>%
+  filter(
+    Year == 2026,
+    !Tree_condition %in% c(2, 5, 8, 9, 10, 11, 12),
+    (DBH > 30 | OG == "Y")
+  )
+
+
+site_tree_counts <- filtered_2026_LMog %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = n()) %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ "Other"
+  ))
+
+total_by_treatment <- site_tree_counts %>%
+  filter(Treatment != "Other") %>%
+  group_by(Treatment) %>%
+  summarise(Trees_Divided_By_3 = sum(Total_Trees) / 3)
+
+fig4<-ggplot(total_by_treatment, aes(x = Treatment, y = Trees_Divided_By_3, fill = Treatment)) +
+  geom_bar(stat = "identity", color = 'black') +
+      ylim(0, 600) +
+  scale_fill_manual(values = c("Treated" = "#e6b855", "Untreated" = "#435e55ff")) +
+  labs(title = "Live mature/old growth density",
+       x = "",
+       y = "Live MOG/ha") +
+  theme_classic() +                                  
+  theme(legend.position = "none", plot.title = element_text(size = 10) )  
+
+
+```
+```{r, eval=FALSE, fig.height = 7, fig.width = 9}
+quatro<-(fig1 + fig2+ fig3+ fig4) + 
+  plot_layout(guides = "collect") &
+  theme(legend.position = "right")
+
+
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+filtered_2026_LMog <- tree_features %>%
+  filter(
+    Year == 2026,
+    !Tree_condition %in% c(2, 5, 8, 9, 10, 11, 12),
+    (OG == "Y")
+  )
+
+
+site_tree_counts <- filtered_2026_LMog %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = n()) %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ "Other"
+  ))
+
+total_by_treatment <- site_tree_counts %>%
+  filter(Treatment != "Other") %>%
+  group_by(Treatment) %>%
+  summarise(Trees_Divided_By_3 = sum(Total_Trees) / 3)
+
+ggplot(total_by_treatment, aes(x = Treatment, y = Trees_Divided_By_3, fill = Treatment)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Treated" = "#e6b855", "Untreated" = "#435e55ff")) +
+  labs(title = "Density Live OG trees/ha  by Treatment Group",
+       x = "Treatment Group",
+       y = "Live OG/ha") +
+  theme_minimal()
+```
+```{r}
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+untreated_trees <- tree_features %>%
+  filter(Site %in% untreated_sites, Year == 2026, Tree_condition %in% c(1,3,7))
+
+species_order <- c("PSME", "PIST", "ABCO", "PIPO", "SASC", "POTR",
+                   "PIED", "QUUN", "QUGA", "ACGL", "PRVI", "JUMO", 
+                   "JUSC", "unknown", "NA")
+untreated_trees <- untreated_trees %>%
+  mutate(SpeciesID = factor(SpeciesID, levels = (species_order)))
+
+dbhun<-ggplot(untreated_trees, aes(x = DBH, fill = SpeciesID)) +
+  geom_histogram(binwidth = 5, position = "stack") +
+    ylim(0, 1250) +
+  scale_fill_manual(values = c("ABCO" = "#4EDFC7", 
+                              "ACGL" = "#C21E56",  
+                              "JUMO" = "#FFC0CB", 
+                              "JUSC" = "#95658B",
+                              "PIED" = "#FFD700",
+                              "PIPO" = "#2E8B57",
+                              "PIST" = "#89CFF0",
+                              "POTR" = "#F1EAA9",
+                              "PRVI" = "#9F2B68",
+                              "PSME" = "#216E90",
+                              "QUGA" = "#CC5500",
+                              "QUUN" = "#E3963E",
+                              "SASC" = "#AFE1AF",
+                              "unknown"= "#808080" ,
+                              "NA" = "#808080" ))+
+  labs(title = "Untreated",
+       x = "DBH",
+       y = "",
+       fill = "Species") +
+  theme_classic() +                                  
+  theme(legend.position = "none") 
+dbhun
+
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+
+treated_sites <- tree_features %>%
+  filter(Site %in% treated_sites, Year == 2026, Tree_condition %in% c(1, 3, 7))
+
+species_order <- c("PSME", "PIST", "ABCO", "PIPO", "SASC", "POTR",
+                   "PIED", "QUUN", "QUGA", "ACGL", "PRVI", "JUMO", 
+                   "JUSC", "unknown", "NA")
+treated_sites <- treated_sites %>%
+  mutate(SpeciesID = factor(SpeciesID, levels = (species_order)))
+
+dbhtr<-ggplot(treated_sites, aes(x = DBH, fill = SpeciesID)) +
+  geom_histogram(binwidth = 5, position = "stack") +
+    ylim(0, 1250) +
+  scale_fill_manual(values = c("ABCO" = "#4EDFC7", 
+                              "ACGL" = "#C21E56",  
+                              "JUMO" = "#FFC0CB", 
+                              "JUSC" = "#95658B",
+                              "PIED" = "#FFD700",
+                              "PIPO" = "#2E8B57",
+                              "PIST" = "#89CFF0",
+                              "POTR" = "#F1EAA9",
+                              "PRVI" = "#9F2B68",
+                              "PSME" = "#216E90",
+                              "QUGA" = "#CC5500",
+                              "QUUN" = "#E3963E",
+                              "SASC" = "#AFE1AF",
+                              "unknown"= "#808080" ,
+                              "NA" = "#808080" ))+
+  labs(title = "Treated",
+       x = "DBH",
+       y = "Count",
+       fill = "Species") +
+  theme_classic() +                                  
+  theme(legend.position = "none") 
+dbhtr
+```
+```{r, eval=FALSE}
+# Remove legend AND removes scale guides from dbhtr
+dbhtr2 <- dbhtr +
+  theme(legend.position = "none") +
+  guides(fill = "none", color = "none", shape = "none")
+
+# Keep dbhun legend
+dbhun2 <- dbhun +
+  theme(legend.position = "right")
+
+# Combine
+dbhboths<-(dbhtr2 + dbhun2) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "right")
+
+
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+
+treated_trees <- tree_features %>%
+  filter(Site %in% treated_sites, Year == 2026, Tree_condition %in% c(6))
+
+species_order <- c("PSME", "PIST", "ABCO", "PIPO", "SASC", "POTR",
+                   "PIED", "QUUN", "QUGA", "ACGL", "PRVI", "JUMO", 
+                   "JUSC", "unknown", "NA")
+
+treated_trees <- treated_trees %>%
+  mutate(SpeciesID = factor(SpeciesID, levels = species_order))
+
+plottreatednewdeaths <- ggplot(treated_trees, aes(x = DBH, fill = SpeciesID)) +
+  geom_histogram(binwidth = 5, position = "stack", color = "black") +
+    ylim(0, 35)+
+  labs(title = "Treated Sites",
+       x = "DBH",
+       y = "Tree Count",
+       fill = "Species") +
+  scale_fill_manual(values = c(
+    "ABCO" = "#4EDFC7", 
+    "ACGL" = "#C21E56",  
+    "JUMO" = "#FFC0CB", 
+    "JUSC" = "#95658B",
+    "PIED" = "#FFD700",
+    "PIPO" = "#2E8B57",
+    "PIST" = "#89CFF0",
+    "POTR" = "#F1EAA9",
+    "PRVI" = "#9F2B68",
+    "PSME" = "#216E90",
+    "QUGA" = "#CC5500",
+    "QUUN" = "#E3963E",
+    "SASC" = "#AFE1AF",
+    "unknown"= "#808080",
+    "NA" = "#808080"
+  )) +
+  theme_classic()
+plottreatednewdeaths
+```
+
+```{r}
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+untreated_trees <- tree_features %>%
+  filter(Site %in% untreated_sites, Year == 2026, Tree_condition %in% c(6))
+
+species_order <- c("PSME", "PIST", "ABCO", "PIPO", "SASC", "POTR",
+                   "PIED", "QUUN", "QUGA", "ACGL", "PRVI", "JUMO", 
+                   "JUSC", "unknown", "NA")
+
+untreated_trees <- untreated_trees %>%
+  mutate(SpeciesID = factor(SpeciesID, levels = species_order))
+
+plot_untreatednewdeaths <- ggplot(untreated_trees, aes(x = DBH, fill = SpeciesID)) +
+  geom_histogram(binwidth = 5, position = "stack", color = "black") +
+  ylim(0, 35)+
+  labs(title = "Untreated",
+       x = "DBH",
+       y = "",
+       fill = "Species") +
+  scale_fill_manual(values = c(
+    "ABCO" = "#4EDFC7", 
+    "ACGL" = "#C21E56",  
+    "JUMO" = "#FFC0CB", 
+    "JUSC" = "#95658B",
+    "PIED" = "#FFD700",
+    "PIPO" = "#2E8B57",
+    "PIST" = "#89CFF0",
+    "POTR" = "#F1EAA9",
+    "PRVI" = "#9F2B68",
+    "PSME" = "#216E90",
+    "QUGA" = "#CC5500",
+    "QUUN" = "#E3963E",
+    "SASC" = "#AFE1AF",
+    "unknown"= "#808080",
+    "NA" = "#808080"
+  )) +
+  theme_classic()
+plot_untreatednewdeaths
+```
+```{r, eval=FALSE}
+# Remove legend AND removes scale guides from dbhtr
+plottreatednewdeaths2 <- plottreatednewdeaths +
+  theme(legend.position = "none") +
+  guides(fill = "none", color = "none", shape = "none")
+
+# Keep dbhun legend
+plot_untreatednewdeaths2 <- plot_untreatednewdeaths +
+  theme(legend.position = "right")
+
+# Combine
+Newdeathdbh<-(plottreatednewdeaths2 + plot_untreatednewdeaths2) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "right")
+Newdeathdbh
+
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+trees_2026 <- tree_features %>%
+  filter(Year == 2026) %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ NA_character_  # Exclude unknown sites
+  )) %>%
+  filter(!is.na(Treatment))  # Remove rows with unknown treatment
+
+species_by_treatment <- trees_2026 %>%
+  group_by(Treatment, SpeciesID) %>%
+  summarise(Tree_Count = n(), .groups = "drop")
+
+species_order <- c("PSME", "PIST", "ABCO", "PIPO", "SASC", "POTR",
+                   "PIED", "QUUN", "QUGA", "ACGL", "PRVI", "JUMO", 
+                   "JUSC", "unknown", "NA")
+
+species_by_treatment <- species_by_treatment %>%
+  mutate(SpeciesID = factor(SpeciesID, levels = (species_order)))
+
+treecounts<-ggplot(species_by_treatment, aes(x = Treatment, y = Tree_Count, fill = SpeciesID)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("ABCO" = "#4EDFC7", 
+                              "ACGL" = "#C21E56",  
+                              "JUMO" = "#FFC0CB", 
+                              "JUSC" = "#95658B",
+                              "PIED" = "#FFD700",
+                              "PIPO" = "#2E8B57",
+                              "PIST" = "#89CFF0",
+                              "POTR" = "#F1EAA9",
+                              "PRVI" = "#9F2B68",
+                              "PSME" = "#216E90",
+                              "QUGA" = "#CC5500",
+                              "QUUN" = "#E3963E",
+                              "SASC" = "#AFE1AF",
+                              "unknown"= "#808080" ,
+                              "NA" = "#808080" ))+
+  labs(title = "Tree Counts",
+       x = "",
+       y = "count",
+       fill = "Species") +
+  theme_classic()
+
+```
+```{r}
+species_by_condition <- trees_2026 %>%
+  group_by(Treatment, SpeciesID) %>%
+  summarise(
+    Tree_Count = n(),
+     OGness_2_3_Count = sum(
+      OGness %in% c(2, 3) & !(Tree_condition %in% c(2, 5, 8, 9, 10, 11, 12)),
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  )
+
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+trees_2026 <- tree_features %>%
+  filter(Year == 2026) %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(Treatment))
+
+species_counts <- trees_2026 %>%
+  group_by(Treatment, SpeciesID) %>%
+  summarise(Tree_Count = n(), .groups = "drop")
+
+total_counts <- species_counts %>%
+  group_by(Treatment) %>%
+  summarise(Total_Trees = sum(Tree_Count), .groups = "drop")
+
+species_composition <- species_counts %>%
+  left_join(total_counts, by = "Treatment") %>%
+  mutate(Proportion = Tree_Count / Total_Trees)
+
+species_order <- c("PSME", "PIST", "ABCO", "PIPO", "SASC", "POTR",
+                   "PIED", "QUUN", "QUGA", "ACGL", "PRVI", "JUMO", 
+                   "JUSC", "unknown", "NA")
+
+# Convert SpeciesID to factor with desired order (rev() for top-down stacking)
+species_composition <- species_composition %>%
+  mutate(SpeciesID = factor(SpeciesID, levels = (species_order)))
+
+# Plot proportional stacked bar chart
+ggplot(species_composition, aes(x = Treatment, y = Proportion, fill = SpeciesID)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("ABCO" = "#4EDFC7", 
+                               "ACGL" = "#C21E56",  
+                               "JUMO" = "#FFC0CB", 
+                               "JUSC" = "#95658B",
+                               "PIED" = "#FFD700",
+                               "PIPO" = "#2E8B57",
+                               "PIST" = "#89CFF0",
+                               "POTR" = "#F1EAA9",
+                               "PRVI" = "#9F2B68",
+                               "PSME" = "#216E90",
+                               "QUGA" = "#CC5500",
+                               "QUUN" = "#E3963E",
+                               "SASC" = "#AFE1AF",
+                               "unknown"= "#808080",
+                               "NA" = "#808080")) +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.1)) +  # Shows 0.0, 0.5, 1.0
+  labs(title = "Species Composition in 2026 by Treatment Group",
+       x = "Treatment Group",
+       y = "Proportion of Individuals",
+       fill = "Species") +
+  theme_minimal()
+```
+```{r}
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+untreated_2026 <- tree_features %>%
+  filter(Year == 2026, Site %in% untreated_sites)
+
+species_counts <- untreated_2026 %>%
+  group_by(Site, SpeciesID) %>%
+  summarise(Tree_Count = n(), .groups = "drop")
+
+site_totals <- species_counts %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = sum(Tree_Count), .groups = "drop")
+
+species_composition <- species_counts %>%
+  left_join(site_totals, by = "Site") %>%
+  mutate(Proportion = Tree_Count / Total_Trees)
+
+species_order <- c("PSME", "PIST", "ABCO", "PIPO", "SASC", "POTR",
+                   "PIED", "QUUN", "QUGA", "ACGL", "PRVI", "JUMO", 
+                   "JUSC", "unknown", "NA")
+
+# Convert SpeciesID to factor with desired order (rev() for top-down stacking)
+species_composition <- species_composition %>%
+  mutate(SpeciesID = factor(SpeciesID, levels = (species_order)))
+
+plot3 <- ggplot(species_composition, aes(x = Site, y = Proportion, fill = SpeciesID)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("ABCO" = "#4EDFC7", 
+                               "ACGL" = "#C21E56",  
+                               "JUMO" = "#FFC0CB", 
+                               "JUSC" = "#95658B",
+                               "PIED" = "#FFD700",
+                               "PIPO" = "#2E8B57",
+                               "PIST" = "#89CFF0",
+                               "POTR" = "#F1EAA9",
+                               "PRVI" = "#9F2B68",
+                               "PSME" = "#216E90",
+                               "QUGA" = "#CC5500",
+                               "QUUN" = "#E3963E",
+                               "SASC" = "#AFE1AF",
+                               "unknown"= "#808080",
+                               "NA" = "#808080")) +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.1)) +  # 0.0 → 1.0
+  labs(title = "Species Composition in Untreated Plots (2026)",
+       x = "Site (Untreated)",
+       y = "Proportion of Individuals",
+       fill = "Species") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1))
+plot3
+```
+
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+trees_2026 <- tree_features %>%
+  filter(Year == 2026, Tree_condition %in% c(2, 5, 6)) %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(Treatment))
+
+species_counts <- trees_2026 %>%
+  group_by(Treatment, SpeciesID) %>%
+  summarise(Dead_Trees = n(), .groups = "drop")
+
+total_counts <- species_counts %>%
+  group_by(Treatment) %>%
+  summarise(Total_Trees = sum(Dead_Trees), .groups = "drop")
+
+species_composition <- species_counts %>%
+  left_join(total_counts, by = "Treatment") %>%
+  mutate(Proportion = Dead_Trees / Total_Trees)
+
+species_order <- c("PSME", "PIST", "ABCO", "PIPO", "SASC", "POTR",
+                   "PIED", "QUUN", "QUGA", "ACGL", "PRVI", "JUMO", 
+                   "JUSC", "unknown", "NA")
+
+# Convert SpeciesID to factor with desired order (rev() for top-down stacking)
+species_composition <- species_composition %>%
+  mutate(SpeciesID = factor(SpeciesID, levels = rev(species_order)))
+
+# Plot proportional stacked bar chart
+ggplot(species_composition, aes(x = Treatment, y = Proportion, fill = SpeciesID)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("ABCO" = "#4EDFC7", 
+                               "ACGL" = "#C21E56",  
+                               "JUMO" = "#FFC0CB", 
+                               "JUSC" = "#95658B",
+                               "PIED" = "#FFD700",
+                               "PIPO" = "#2E8B57",
+                               "PIST" = "#89CFF0",
+                               "POTR" = "#F1EAA9",
+                               "PRVI" = "#9F2B68",
+                               "PSME" = "#216E90",
+                               "QUGA" = "#CC5500",
+                               "QUUN" = "#E3963E",
+                               "SASC" = "#AFE1AF",
+                               "unknown"= "#808080",
+                               "NA" = "#808080")) +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.1)) +  # 0.0 → 1.0
+  labs(title = "Dead and Newly Dead Species Composition in 2026 by Treatment Group",
+       x = "Treatment Group",
+       y = "Proportion of Individuals",
+       fill = "Species") +
+  theme_minimal()
+
+
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+
+treated_2026 <- tree_features %>%
+  filter(Year == 2026, Site %in% treated_sites)
+
+species_counts <- treated_2026 %>%
+  group_by(Site, SpeciesID) %>%
+  summarise(Tree_Count = n(), .groups = "drop")
+
+site_totals <- species_counts %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = sum(Tree_Count), .groups = "drop")
+
+species_composition <- species_counts %>%
+  left_join(site_totals, by = "Site") %>%
+  mutate(Proportion = Tree_Count / Total_Trees)
+
+species_order <- c("PSME", "PIST", "ABCO", "PIPO", "SASC", "POTR",
+                   "PIED", "QUUN", "QUGA", "ACGL", "PRVI", "JUMO", 
+                   "JUSC", "unknown", "NA")
+
+# Convert SpeciesID to factor with desired order (rev() for top-down stacking)
+species_composition <- species_composition %>%
+  mutate(SpeciesID = factor(SpeciesID, levels = (species_order)))
+
+plot4<- ggplot(species_composition, aes(x = Site, y = Proportion, fill = SpeciesID)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("ABCO" = "#4EDFC7", 
+                               "ACGL" = "#C21E56",  
+                               "JUMO" = "#FFC0CB", 
+                               "JUSC" = "#95658B",
+                               "PIED" = "#FFD700",
+                               "PIPO" = "#2E8B57",
+                               "PIST" = "#89CFF0",
+                               "POTR" = "#F1EAA9",
+                               "PRVI" = "#9F2B68",
+                               "PSME" = "#216E90",
+                               "QUGA" = "#CC5500",
+                               "QUUN" = "#E3963E",
+                               "SASC" = "#AFE1AF",
+                               "unknown"= "#808080",
+                               "NA" = "#808080")) +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.1)) +  # 0 → 1
+  labs(title = "Species Composition in Treated Plots (2026)",
+       x = "Site (Treated)",
+       y = "Proportion of Individuals",
+       fill = "Species") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1))
+plot4
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+
+treated_2026 <- tree_features %>%
+  filter(Year == 2026, Site %in% treated_sites, Tree_condition %in% c(2, 5, 6))
+
+species_order <- c("PSME", "PIST", "ABCO", "PIPO", "SASC", "POTR",
+                   "PIED", "QUUN", "QUGA", "ACGL", "PRVI", "JUMO", 
+                   "JUSC", "unknown", "NA")
+
+treated_2026 <- treated_2026 %>%
+  mutate(SpeciesID = factor(SpeciesID, levels = species_order))
+
+
+species_counts <- treated_2026 %>%
+  group_by(Site, SpeciesID) %>%
+  summarise(Tree_Count = n(), .groups = "drop")
+
+site_totals <- species_counts %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = sum(Tree_Count), .groups = "drop")
+
+species_composition <- species_counts %>%
+  left_join(site_totals, by = "Site") %>%
+  mutate(Proportion = Tree_Count / Total_Trees)
+
+plot_treated_composition <- ggplot(species_composition, aes(x = Site, y = Proportion, fill = SpeciesID)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  scale_fill_manual(values = c(
+    "ABCO" = "#4EDFC7", 
+    "ACGL" = "#C21E56",  
+    "JUMO" = "#FFC0CB", 
+    "JUSC" = "#95658B",
+    "PIED" = "#FFD700",
+    "PIPO" = "#2E8B57",
+    "PIST" = "#89CFF0",
+    "POTR" = "#F1EAA9",
+    "PRVI" = "#9F2B68",
+    "PSME" = "#216E90",
+    "QUGA" = "#CC5500",
+    "QUUN" = "#E3963E",
+    "SASC" = "#AFE1AF",
+    "unknown"= "#808080",
+    "NA" = "#808080"
+  )) +
+  labs(title = "Dead and newly dead Species Composition in Treated Plots (2026)",
+       x = "Site (Treated)",
+       y = "Proportion of Individuals",
+       fill = "Species") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+plot_treated_composition
+```
+```{r}
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+untreated_2026 <- tree_features %>%
+  filter(Year == 2026, Site %in% untreated_sites, Tree_condition %in% c(2, 5, 6))
+
+species_order <- c("PSME", "PIST", "ABCO", "PIPO", "SASC", "POTR",
+                   "PIED", "QUUN", "QUGA", "ACGL", "PRVI", "JUMO", 
+                   "JUSC", "unknown", "NA")
+
+untreated_2026 <- untreated_2026 %>%
+  mutate(SpeciesID = factor(SpeciesID, levels = species_order))
+
+species_counts <- untreated_2026 %>%
+  group_by(Site, SpeciesID) %>%
+  summarise(Tree_Count = n(), .groups = "drop")
+
+site_totals <- species_counts %>%
+  group_by(Site) %>%
+  summarise(Total_Trees = sum(Tree_Count), .groups = "drop")
+
+species_composition <- species_counts %>%
+  left_join(site_totals, by = "Site") %>%
+  mutate(Proportion = Tree_Count / Total_Trees)
+
+plot_untreated_composition <- ggplot(species_composition, aes(x = Site, y = Proportion, fill = SpeciesID)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  scale_fill_manual(values = c(
+    "ABCO" = "#4EDFC7", 
+    "ACGL" = "#C21E56",  
+    "JUMO" = "#FFC0CB", 
+    "JUSC" = "#95658B",
+    "PIED" = "#FFD700",
+    "PIPO" = "#2E8B57",
+    "PIST" = "#89CFF0",
+    "POTR" = "#F1EAA9",
+    "PRVI" = "#9F2B68",
+    "PSME" = "#216E90",
+    "QUGA" = "#CC5500",
+    "QUUN" = "#E3963E",
+    "SASC" = "#AFE1AF",
+    "unknown"= "#808080",
+    "NA" = "#808080"
+  )) +
+  labs(title = "Dead and newly dead Species Composition in Untreated Plots (2026)",
+       x = "Site (Untreated)",
+       y = "Proportion of Individuals",
+       fill = "Species") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+plot_untreated_composition
+```
+```{r}
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+untreated_trees <- tree_features %>%
+  filter(Site %in% untreated_sites,
+         Year == 2026,
+         Tree_condition %in% 1:12)  
+
+plot6<-ggplot(untreated_trees, aes(x = DBH, fill = as.factor(Tree_condition))) +
+  geom_histogram(binwidth = 5, position = "stack", color = "black") +
+  scale_fill_manual(
+    values = RColorBrewer::brewer.pal(12, "Paired"),  # or your own color vector
+    labels = c(
+      "1" = "Live",
+      "2" = "Still dead",
+      "3" = "Still Dalb",
+      "5" = "Dead on install",
+      "6" = "New Death",
+      "7" = "New Dalb",
+      "8" = "Missing Dead", 
+      "9" = "Missing Dead",
+      "10" = "Missing Live",
+      "11" = "Missing Live", 
+      "12" = "Log"
+
+ ),
+    name = "Tree Condition"
+  ) +
+  labs(
+    title = "Untreated, 2026",
+    x = "DBH",
+    y = "Tree Count"
+  ) +
+  theme_minimal()
+plot6
+
+``` 
+```{r}
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+untreated_trees <- tree_features %>%
+  filter(Site %in% untreated_sites,
+         Year == 2026,
+         Tree_condition %in% 1:12)  
+
+untreated_trees <- untreated_trees %>%
+  mutate(Condition_group = case_when(
+    Tree_condition %in% c(3, 7) ~ "Dalb",
+    Tree_condition %in% c(2, 5, 12) ~ "Dead",
+    Tree_condition == 6 ~ "New Death",
+    Tree_condition == 1 ~ "Live",
+    Tree_condition %in% c(8, 9, 10, 11) ~ "Missing",
+    TRUE ~ "NA"
+  )) %>%
+  mutate(Condition_group = factor(Condition_group, 
+                                  levels = c("Dalb", "Dead", "New Death", "Live", "Missing", "NA")))
+
+condition_colors <- c(
+  "Dalb" = "#e8bb61",
+  "Dead" = "#c7505c",
+  "New Death" = "#8B0000",  # dark red
+  "Live" = "#8ccfa8",
+  "Missing" = "#56B4E9",
+  "NA" = "grey",
+  "New Dalb" = "purple"
+)
+
+plot9<-ggplot(untreated_trees, aes(x = DBH, fill = Condition_group)) +
+  geom_histogram(binwidth = 5, position = "stack", color = "black") +
+  scale_fill_manual(values = condition_colors) +
+  labs(
+    title = "Untreated by condition, 2026",
+    x = "DBH",
+    y = "Tree Count",
+    fill = "Tree Condition"
+  ) +
+  theme_minimal()
+plot9
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+
+treated_trees <- tree_features %>%
+  filter(Site %in% treated_sites,
+         Year == 2026,
+         Tree_condition %in% 1:12)
+
+treated_trees <- treated_trees %>%
+  mutate(Condition_group = case_when(
+    Tree_condition %in% c(3, 7) ~ "Dalb",
+    Tree_condition %in% c(2, 5, 12) ~ "Dead",
+    Tree_condition == 6 ~ "New Death",
+    Tree_condition == 1 ~ "Live",
+    Tree_condition %in% c(8, 9, 10, 11) ~ "Missing",
+    TRUE ~ "NA"
+  )) %>%
+  mutate(Condition_group = factor(Condition_group, 
+                                  levels = c("Dalb", "Dead", "New Death", "Live", "Missing", "NA")))
+condition_colors <- c(
+  "Dalb" = "#e8bb61",
+  "Dead" = "#c7505c",
+  "New Death" = "#8B0000",  # dark red
+  "Live" = "#8ccfa8",
+  "Missing" = "#56B4E9",
+  "NA" = "grey",
+  "New Dalb" = "purple"
+)
+
+plot10<-ggplot(treated_trees, aes(x = DBH, fill = Condition_group)) +
+  geom_histogram(binwidth = 5, position = "stack", color = "black") +
+  scale_fill_manual(values = condition_colors) +
+  labs(
+    title = "Treated by condition, 2026",
+    x = "DBH",
+    y = "Tree Count",
+    fill = "Tree Condition"
+  ) +
+  theme_minimal()
+plot10
+```
+```{r}
+
+
+# Function to extract legend from a ggplot
+get_legend <- function(myplot) {
+  tmp <- ggplotGrob(myplot)
+  leg <- gtable::gtable_filter(tmp, "guide-box")
+  return(leg)
+}
+
+# Assume plot9 (untreated) and plot10 (treated) are already defined
+# Remove legends from plots
+plot9_noleg <- plot9 + theme(legend.position = "none")
+plot10_noleg <- plot10 + theme(legend.position = "none")
+
+# Extract legend from one of the plots
+shared_legend <- get_legend(plot9)
+
+# Combine plots with shared legend on the right
+grid.arrange(
+  arrangeGrob(plot9_noleg, plot10_noleg, ncol = 2),
+  shared_legend,
+  ncol = 2,
+  widths = c(4, 1)  # Adjust widths so legend isn't too small
+)
+```
+
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+# Step 1: Filter 2026 data and assign Treatment
+filtered_trees <- tree_features %>%
+  filter(Year == 2026, !is.na(SpeciesID), !is.na(Site), Site %in% c(treated_sites, untreated_sites),
+  !Tree_condition %in% c(2, 5, 8, 9, 10, 11, 12)) %>%
+  mutate(
+    Treatment = case_when(
+      Site %in% treated_sites ~ "Treated",
+      Site %in% untreated_sites ~ "Untreated"
+    )
+  )
+
+# Step 2: Create species abundance matrix per plot
+species_matrix <- filtered_trees %>%
+  group_by(Site, SpeciesID) %>%
+  summarise(Abundance = n(), .groups = "drop") %>%
+  pivot_wider(names_from = SpeciesID, values_from = Abundance, values_fill = 0)
+
+# Step 3: Calculate Shannon index
+plot_ids <- species_matrix$Site
+species_matrix_only <- species_matrix %>% select(-Site)
+shannon_values <- diversity(species_matrix_only, index = "shannon")
+
+# Clean Site and Year columns
+tree_features <- tree_features %>%
+  mutate(
+    Site = trimws(toupper(Site)),
+    Year = as.numeric(Year)
+  )
+
+# Step 4: Add treatment info back
+plot_treatments <- filtered_trees %>%
+  select(Site, Treatment) %>%
+  distinct()
+diversity_data <- data.frame(
+  Site = plot_ids,
+
+  Shannon = shannon_values
+) %>%
+  left_join(plot_treatments, by = "Site")
+
+# Step 5: t-test
+cat("\nT-test comparing Shannon Diversity between Treated and Untreated sites (2026):\n")
+t_test_result <- t.test(Shannon ~ Treatment, data = diversity_data)
+print(t_test_result)
+
+t_test_result <- t.test(Shannon ~ Treatment, data = diversity_data)
+print(t_test_result)
+
+ggplot(diversity_data, aes(x = Treatment, y = Shannon, fill = Treatment)) +
+  geom_boxplot(color = "black", alpha = 0.8) +  # black outlines, slightly transparent fill
+  labs(
+    title = "Shannon Diversity Index by Treatment (2026)",
+    x = "Treatment Group",
+    y = "Shannon Index"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Treated" = "#e6b855",    # custom green
+      "Untreated" = "#435e55ff"   # custom orange
+    )
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+    legend.position = "none",  # remove legend if not needed
+    axis.text = element_text(color = "black"),
+    panel.grid.minor = element_blank()
+  )
+
+##"Treated" = "#e6b855", "Untreated" = "#435e55ff"
+
+
+``` 
+```{r}
+
+treatment_colors <- c("Treated" = "#e6b855", "Untreated" = "#435e55ff")
+
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+# Clean and filter the data
+tree_features <- tree_features %>%
+  mutate(
+    Site = trimws(toupper(Site)),
+    Year = as.numeric(Year)
+  )
+
+filtered_trees <- tree_features %>%
+  filter(
+    Year == 2026,
+    !is.na(SpeciesID),
+    !is.na(Site),
+    Site %in% c(treated_sites, untreated_sites)) %>%
+  mutate(
+    Treatment = case_when(
+      Site %in% treated_sites ~ "Treated",
+      Site %in% untreated_sites ~ "Untreated"
+    )
+  )
+# Species abundance per Site
+species_matrix <- filtered_trees %>%
+  group_by(Site, SpeciesID) %>%
+  summarise(Abundance = n(), .groups = "drop") %>%
+  pivot_wider(names_from = SpeciesID, values_from = Abundance, values_fill = 0)
+
+# Extract Site and abundance data
+site_ids <- species_matrix$Site
+species_matrix_only <- species_matrix %>% select(-Site)
+
+# Calculate Simpson Index
+simpson_values <- diversity(species_matrix_only, index = "simpson")
+
+# Create diversity data frame
+diversity_data <- data.frame(
+  Site = site_ids,
+  Simpson = simpson_values
+)
+
+# Add treatment info
+diversity_data <- diversity_data %>%
+  mutate(
+    Treatment = case_when(
+      Site %in% treated_sites ~ "Treated",
+      Site %in% untreated_sites ~ "Untreated"
+    )
+  )
+# Perform t-test on Simpson Index
+cat("\nT-test comparing Simpson Diversity between Treated and Untreated sites (2026):\n")
+t_test_result <- t.test(Simpson ~ Treatment, data = diversity_data)
+print(t_test_result)
+
+ggplot(diversity_data, aes(x = Treatment, y = Simpson, fill = Treatment)) +
+  geom_boxplot() +
+  labs(
+    title = "Simpson Diversity Index by Treatment (2026)",
+    x = "Treatment Group",
+    y = "Simpson Index"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Treated" = "#e6b855",    # custom green
+      "Untreated" = "#435e55ff"   # custom orange
+    )
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+    legend.position = "none",  # remove legend if not needed
+    axis.text = element_text(color = "black"),
+    panel.grid.minor = element_blank()
+  )
+
+
+``` 
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+# Clean and filter the data for 2026, with Site and Tree_condition info
+filtered_trees <- tree_features %>%
+  mutate(
+    Site = trimws(toupper(Site)),
+    Year = as.numeric(Year),
+    Treatment = case_when(
+      Site %in% treated_sites ~ "Treated",
+      Site %in% untreated_sites ~ "Untreated",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(
+    Year == 2026,
+    !is.na(Treatment),
+    !is.na(Tree_condition)
+  )
+proportion_data <- filtered_trees %>%
+  group_by(Site, Treatment) %>%
+  summarise(
+    total_trees = n(),
+    condition6_trees =  sum(Tree_condition[Tree_condition %in% c(3, 7)], na.rm = TRUE)
+    proportion_condition6 = condition6_trees / total_trees,
+    .groups = "drop"
+  )
+cat("\nT-test comparing proportion DALB and NEW DALB (Cond=3,7) between Treated and Untreated sites (2026):\n")
+t_test_result <- t.test(proportion_condition6 ~ Treatment, data = proportion_data)
+print(t_test_result)
+```
+```{r}
+###1=NOT OG, 2=OG, 3= MOG/DBH>30 BUT NOT LISTED AS OG 
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+# Clean and filter
+filtered_trees <- tree_features %>%
+  mutate(
+    Site = trimws(toupper(Site)),
+    Year = as.numeric(Year),
+    Treatment = case_when(
+      Site %in% treated_sites ~ "Treated",
+      Site %in% untreated_sites ~ "Untreated",
+      TRUE ~ NA_character_
+    ),
+    OGness = as.numeric(OGness)
+  ) %>%
+  filter(
+    Year == 2026,
+    !is.na(Treatment),
+    !is.na(OGness)
+  )
+ogness_summary <- filtered_trees %>%
+  group_by(Site, Treatment) %>%
+  summarise(
+    total = n(),
+    count_1 = sum(OGness == 1),
+    count_2_3 = sum(OGness %in% c(2, 3)),
+    proportion_1 = count_1 / total,
+    proportion_2_3 = count_2_3 / total,
+    .groups = "drop"
+  )
+cat("\nT-test comparing proportion OG and MOG vs not OG between Treated and Untreated sites (2026):\n")
+t.test(proportion_1 ~ Treatment, data = ogness_summary)
+wilcox.test(proportion_1 ~ Treatment, data = ogness_summary)
+
+
+
+``` 
+
+```{r}
+trees_2025 <- tree_features %>%
+  filter(Year == 2025)
+
+trees25cond6 <- trees_2025 %>%
+  filter(Tree_condition == 6) %>%
+  select(TreeID, SpeciesID)
+```
+
+```{r}
+trees_2026 <- tree_features %>%
+  filter(Year == 2026)
+
+
+# Calculate percent of trees with condition 6 per site for 2025
+percent_2025 <- trees_2025 %>%
+  group_by(Site) %>%  # or replace with your grouping variable, or remove if none
+  summarise(
+    PercentCondition6 = mean(Tree_condition == 6, na.rm = TRUE) * 100,
+    .groups = "drop"
+  ) %>%
+  mutate(Year = "2025")
+
+# Calculate percent of trees with condition 6 per site for 2026
+percent_2026 <- trees_2026 %>%
+  group_by(Site) %>%
+  summarise(
+    PercentCondition6 = mean(Tree_condition == 6, na.rm = TRUE) * 100,
+    .groups = "drop"
+  ) %>%
+  mutate(Year = "2026")
+
+# Combine datasets
+combined_percent <- bind_rows(percent_2025, percent_2026)
+
+# Run t-test comparing percent condition 6 between years
+t_test_result <- t.test(PercentCondition6 ~ Year, data = combined_percent)
+
+# Output results
+print(combined_percent)
+cat("\n🔍 T-test comparing percent of New Mortalities between 2025 and 2026:\n")
+print(t_test_result)
+```
+```{r}
+
+trees_2026 <- tree_features %>%
+  filter(Year == 2026)
+trees_2025 <- tree_features %>%
+  filter(Year == 2025)
+# ---- 2025 Data (BTN4 + SFS4) ----
+trees_2025_btn4_sfs4 <- trees_2025 %>% 
+  filter(Site%in% c("BTN4", "SFS4"))
+
+total_2025 <- nrow(trees_2025_btn4_sfs4)
+condition6_2025 <- sum(trees_2025_btn4_sfs4$Tree_condition == 6, na.rm = TRUE)
+percent_2025 <- (condition6_2025 / total_2025) * 100
+
+trees_2026_btn4_sfs4 <- trees_2026 %>% 
+  filter(Site %in% c("BTN4", "SFS4"))
+
+total_2026 <- nrow(trees_2026_btn4_sfs4)
+condition6_2026 <- sum(trees_2026_btn4_sfs4$Tree_condition == 6, na.rm = TRUE)
+percent_2026 <- (condition6_2026 / total_2026) * 100
+
+cat("2025 BTN4 + SFS4 total trees:", total_2025, "\n")
+cat("2025 BTN4 + SFS4 trees with Condition 6:", condition6_2025, "\n")
+cat(sprintf("2025 BTN4 + SFS4 percent condition 6: %.2f%%\n\n", percent_2025))
+
+cat("2026 BTN4 + SFS4 total trees:", total_2026, "\n")
+cat("2026 BTN4 + SFS4 trees with Condition 6:", condition6_2026, "\n")
+cat(sprintf("2026 BTN4 + SFS4 percent condition 6: %.2f%%\n", percent_2026))
+```
+```{r}
+# Combine data for 2025 and 2026
+d2025 <- trees_2025 %>% filter(Site %in% c("BTN4", "SFS4"))
+d2026 <- trees_2026 %>% filter(Site %in% c("BTN4", "SFS4"))
+
+# Count condition 6 vs others
+tab <- matrix(
+  c(sum(d2025$Tree_condition == 6),
+    sum(d2025$Tree_condition != 6),
+    sum(d2026$Tree_condition == 6),
+    sum(d2026$Tree_condition != 6)),
+  nrow = 2,
+  byrow = TRUE
+)
+
+rownames(tab) <- c("2025", "2026")
+colnames(tab) <- c("Condition6", "NotCondition6")
+
+tab
+cat("New Mortalities BTN4 + SFS4 total, 2025 vs 2026 trees:\n")
+chisq.test(tab)
+fisher.test(tab)
+```
+```{r}
+# Create contingency table
+tbl <- rbind(
+  trees_2025 %>% filter(Site == "BTN4") %>% summarise(Condition6 = sum(Tree_condition == 6, na.rm = TRUE),
+                                                      Other = sum(Tree_condition != 6, na.rm = TRUE)),
+  trees_2026 %>% filter(Site == "BTN4") %>% summarise(Condition6 = sum(Tree_condition == 6, na.rm = TRUE),
+                                                      Other = sum(Tree_condition != 6, na.rm = TRUE))
+)
+rownames(tbl) <- c("2025", "2026")
+
+# Fisher's exact test
+fisher_test <- fisher.test(tbl)
+print(tbl)
+cat("\n🔍Fisher Exact Test, New Mortalities in BTN4, 2025 vs 2026:\n")
+print(fisher_test)
+
+
+```
+```{r}
+trees_newdeathsfr <- trees_2026 %>%
+   filter(Tree_condition %in% c(1, 3, 4, 6, 7))
+```
+```{r}
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+# Create a treatment column
+trees_newdeathsfr <- trees_newdeathsfr %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ "Unknown"
+  ))
+
+# Create summary table
+summary_table <- trees_newdeathsfr %>%
+  group_by(SpeciesID, Treatment) %>%
+  summarise(
+    n_new_mort = sum(Tree_condition == 6, na.rm = TRUE),
+    n_total = sum(Tree_condition != 6, na.rm = TRUE),
+    pct_new_mort = n_new_mort / (n_total + n_new_mort),
+    n_not_new_mort = n_total,
+    .groups = "drop"
+  )
+
+summary_table
+```
+```{r}
+target_species <- c("ABCO", "PIED", "PIPO", "PIST", "PSME", "QUGA")
+
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+mortality_compare <- trees_newdeathsfr %>%
+  # keep only target species
+  filter(SpeciesID %in% target_species) %>%
+  
+  # assign treatment group
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ "Unknown"
+  )) %>%
+  
+  group_by(SpeciesID, Treatment) %>%
+  summarise(
+    n_new_mort = sum(Tree_condition == 6, na.rm = TRUE),
+    n_total = sum(Tree_condition != 6, na.rm = TRUE),
+    pct_mortality = n_new_mort / (n_total + n_new_mort),
+    .groups = "drop"
+  )
+
+mortality_compare
+```
+
+```{r}
+###THIS IS KINDA NOTHING
+# species you want to test
+target_species <- c("ABCO", "PIED", "PIPO", "PIST", "PSME", "QUGA")
+
+# define treatment groups
+treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
+untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+# function to run tests for one species
+run_tests_for_species <- function(sp) {
+  
+  dat <- trees_newdeathsfr %>%
+    filter(SpeciesID == sp) %>%
+    mutate(
+      Treatment = ifelse(Site %in% treated_sites, "Treated", "Untreated"),
+      dead = Tree_condition == 6,
+      alive = Tree_condition != 6
+    ) %>%
+    group_by(Treatment) %>%
+    summarise(
+      dead = sum(dead),
+      alive = sum(alive),
+      .groups = "drop"
+    )
+  
+  # build 2×2 contingency matrix
+  mat <- as.matrix(dat[, c("dead", "alive")])
+  rownames(mat) <- dat$Treatment
+  
+  list(
+    species = sp,
+    table = mat,
+    chi_square = chisq.test(mat, correct = FALSE),
+    fisher = fisher.test(mat)
+  )
+}
+
+# run for all species
+results <- map(target_species, run_tests_for_species)
+
+results
+```
