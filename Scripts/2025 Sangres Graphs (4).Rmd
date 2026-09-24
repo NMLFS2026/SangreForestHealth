@@ -8,8 +8,9 @@ date: "2025-10-20"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 ```{r}
-setwd("~/Desktop")
-file.exists("/Users/benmuher/Desktop")
+#setwd("~/Desktop")
+#file.exists("/Users/benmuher/Desktop")
+data_dir <- "/workspaces/SangreForestHealth/Data"
 library(dplyr)
 library(ggplot2)
 library(openxlsx)
@@ -26,7 +27,10 @@ library(purrr)
 install.packages("writexl")
 library(writexl)
 #read in tree data
-trees<- read.xlsx("database.xlsx")
+
+#Trees table
+trees <- read.xlsx(file.path(data_dir, "database.xlsx"))
+View()
 #ANY GRAPHS THAT HAVE WEIRD COLORS WERE NOT USED IN FINAL REPORT, BUT SOME GRAPHS W NORMAL COLORS ALSO WERE NOT USED 
 ```
 ```{r}
@@ -432,7 +436,7 @@ site_totals_filtered$Treatment <- ifelse(
 cat("\nT-test Live MOG densities, Treated vs Untreated (2025):\n")
 t.test(Total_Trees ~ Treatment, data = site_totals_filtered)
 ```
-```{r}
+```{r all_cond}
 filtered_2025 <- trees %>%
   filter(Year == 2025)
 
