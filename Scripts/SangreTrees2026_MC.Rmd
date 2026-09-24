@@ -15,14 +15,13 @@ stopifnot(dir.exists(data_dir))
 #Packages
 required_pkgs <- c("dplyr", "ggplot2", "openxlsx", "tidyr", "stringr", "vegan",
                    "readr", "scales", "gridExtra", "grid", "purrr",
-                   "writexl", "RColorBrewer", "gtable")
+                   "writexl", "RColorBrewer", "gtable") #removed patchwork
 
 missing_pkgs <- setdiff(required_pkgs, rownames(installed.packages()))
 if (length(missing_pkgs) > 0) {
   install.packages(missing_pkgs, repos = "https://cloud.r-project.org")
 }
 invisible(lapply(required_pkgs, library, character.only = TRUE))
-
 
 #Tree_features
 tree_features <- read.xlsx(file.path(data_dir, "Tree_features_9_18_26.xlsx"))
@@ -96,7 +95,6 @@ trees_c <- trees_a %>%
 
 ```
 
-
 ```{r dbh_options} #choose between dbh/og methods
 #option 0: not filling in the dbh values 
 #trees_2026 <- trees_a %>%
@@ -110,6 +108,8 @@ trees_2026 <- trees_b %>%
 #trees_2026 <- trees_c %>%
 #  filter(Year == 2026)
 
+
+#end running chunks here for maura's file 
 ```
 
 
@@ -565,7 +565,7 @@ fig1
 
 
 ```
-```{r}
+```{r live_trees_by_plot}
 filtered_2026 <- tree_features %>%
   filter(Year == 2026, Tree_condition %in% c(1,3,7))
 
