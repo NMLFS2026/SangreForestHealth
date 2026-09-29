@@ -30,7 +30,7 @@ library(writexl)
 
 #Trees table
 trees <- read.xlsx(file.path(data_dir, "database.xlsx"))
-View()
+View( trees)
 #ANY GRAPHS THAT HAVE WEIRD COLORS WERE NOT USED IN FINAL REPORT, BUT SOME GRAPHS W NORMAL COLORS ALSO WERE NOT USED 
 ```
 ```{r}

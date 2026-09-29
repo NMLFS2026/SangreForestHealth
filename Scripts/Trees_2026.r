@@ -16,7 +16,7 @@
 # - talk about spatial distance of veg plot to tree and see if that effects the veg composiont : look at by species
 
 
-## General population trends over time 
+## (I) General population trends over time 
 #View(trees_a)
 
 tree_counts_over_time <- trees_a %>%
@@ -75,7 +75,7 @@ View(living_tree_counts_timeseries)
 
 
 
-# Report Analysis 
+## (II) Report Analysis 
 
 #set up 
 treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
@@ -88,8 +88,8 @@ View(trees_2026)
 
 living_2026 <- trees_2026 %>%
   filter(Year == 2026, Tree_condition %in% c(1))
-living_2025 <- trees_2026 %>%
-  filter(Year == 2026, Tree_condition %in% c(1, 3, 7))
+trees_2025 <- trees_a %>%
+  filter(Year == 2025)
 
 ## (A) Tree density 
 
@@ -108,8 +108,7 @@ summary_2026living <- living_2026 %>%
     SE_Trees = sqrt(sum((Total_Trees - mean(Total_Trees))^2)) / sqrt(n()),  # standard error of the sum approximation
     Trees_Divided_By_3 = Sum_Trees / 3, #3 ha per treatment
     SE_Divided_By_3 = SE_Trees / 3,
-    .groups = 'drop'
-  )
+    .groups = 'drop' )
 View(summary_2026living)
 # statistic: 355 living trees/ha (treated) vs 1,323.3 living trees/ha (untreated)
 
@@ -121,8 +120,7 @@ tree_density_site <- trees_2026 %>%
   summarise(Total_Trees = n(), .groups = "drop") %>%
   mutate(
     Plot_Area_ha = if_else(Site %in% one_ha_sites, 1, 0.25),
-    Density_ha = Total_Trees / Plot_Area_ha
-  )
+    Density_ha = Total_Trees / Plot_Area_ha)
 View(tree_density_site)
 
 #(A2) Livee tree density by site aka the count of living trees
@@ -131,12 +129,115 @@ live_tree_density_site <- living_2026 %>%
   summarise(Total_Trees = n(), .groups = "drop") %>%
   mutate(
     Plot_Area_ha = if_else(Site %in% one_ha_sites, 1, 0.25),
-    Density_ha = Total_Trees / Plot_Area_ha
-  )
+    Density_ha = Total_Trees / Plot_Area_ha)
 View(live_tree_density_site)
 
+#(A3) Replicating the Tree density vs live tree density plots
+# x is treated vs untreated, y is density per hectare
 
-#(B) % new mortality per hectare (treated vs untreated)
+#version 3: not averaging the sites 
+#   density_by_treatment <- bind_rows(
+#   tree_density_site %>%
+#     mutate(Tree_Status = "All Trees"),
+#   live_tree_density_site %>%
+#     mutate(Tree_Status = "Living Trees")
+# ) %>%
+#   mutate(Treatment = case_when(
+#     Site %in% treated_sites ~ "Treated",
+#     Site %in% untreated_sites ~ "Untreated"
+#   )) %>%
+#   #standard error bars prep
+#   filter(!is.na(Treatment)) %>%
+#   mutate(Site_Density_ha = Total_Trees / Plot_Area_ha) %>%
+#   group_by(Treatment, Tree_Status) %>%
+#   summarise(
+#     n = n(),
+#     Density_ha = mean(Site_Density_ha),
+#     SE = sd(Site_Density_ha) / sqrt(n),
+#     .groups = "drop"
+#   ) %>%
+#   mutate(Treatment = factor(Treatment, levels = c("Treated", "Untreated")))
+
+#version 4: averaging the density by site
+one_ha_sites    <- c("BTN4", "SFF2", "SFS4", "SFF8")
+
+#site reference table
+site_info <- tibble(Site = c(treated_sites, untreated_sites)) %>%
+  mutate(
+    Treatment = if_else(Site %in% treated_sites, "Treated", "Untreated"),
+    Plot_Area_ha = if_else(Site %in% one_ha_sites, 1, 0.25) )
+
+# Tree counts per site for each status
+tree_counts <- bind_rows(
+  trees_2026 %>%
+    count(Site, name = "Total_Trees") %>%
+    mutate(Tree_Status = "All Trees"), #All trees, name changed for plot title
+  trees_2026 %>%
+    filter(Tree_condition == "1") %>%   
+    count(Site, name = "Total_Trees") %>%
+    mutate(Tree_Status = "Living Trees")
+)
+
+# density per site
+site_density <- expand_grid(site_info, Tree_Status = c("All Trees", "Living Trees")) %>%
+  left_join(tree_counts, by = c("Site", "Tree_Status")) %>%
+  mutate(
+    Total_Trees = replace_na(Total_Trees, 0),
+    Site_Density_ha = Total_Trees / Plot_Area_ha)
+
+density_by_treatment <- site_density %>%
+  group_by(Treatment, Tree_Status) %>%
+  summarise(
+    n = n(),
+    Density_ha = mean(Site_Density_ha),
+    SE = sd(Site_Density_ha) / sqrt(n),
+    .groups = "drop"
+  ) %>%
+  mutate(Treatment = factor(Treatment, levels = c("Treated", "Untreated")))
+
+#plot
+density_by_treatment_plot <- ggplot(
+  density_by_treatment,
+  aes(x = Treatment, y = Density_ha, fill = Treatment)
+) +
+  geom_col(width = 0.5, color = "black", linewidth = 0.3) +
+  geom_errorbar(
+    aes(ymin = Density_ha - SE, ymax = Density_ha + SE),
+    width = 0.15,
+    linewidth = 0.6
+  ) +
+  facet_wrap(~ Tree_Status, nrow = 1) +
+  scale_fill_manual(
+    values = c("Treated" = "#CC5500", "Untreated" = "grey60")
+  ) +
+  labs(
+    x = NULL,
+    y = "Trees per hectare"
+  ) +
+  theme_classic(base_size = 16) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(size = 18, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 18),
+    axis.text = element_text(size = 16),
+    legend.position = "none")
+
+ggsave( "Figures/density_by_treatment.png", #open this in the Figures folder
+  density_by_treatment_plot,
+  width = 10, height = 5, dpi = 300)
+
+# density statistics
+#means and sd 
+
+View(density_by_treatment)
+
+# need to look at the difference in Bens code vs my code to see why the 
+# numbers look so different. 
+
+
+#(B) Mortality 
+
+#(B0) % new mortality per hectare (treated vs untreated)
 Count_treatment_2026 <- trees_2026 %>%
 mutate(Treatment = case_when(
     Site %in% treated_sites ~ "Treated",
@@ -157,8 +258,70 @@ new_mort_2026_treatment <- trees_2026 %>%
     Total_trees = n(),
     cond6_trees = sum(Tree_condition == 6, na.rm = TRUE),
     percent_cond6 = 100 * cond6_trees / Total_trees,
-    .groups = "drop"
-  )
+    .groups = "drop")
 
 View(new_mort_2026_treatment )
+
+#checking against the 2025 data
+new_mort_2025_treatment <- trees_2025 %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated"
+  )) %>%
+  filter(Site %in% c(treated_sites, untreated_sites)) %>%
+  group_by(Treatment) %>%
+  summarise(
+    Total_trees = n(),
+    cond6_trees = sum(Tree_condition == 6, na.rm = TRUE),
+    percent_cond6 = 100 * cond6_trees / Total_trees,
+    .groups = "drop" )
+
+#View(new_mort_2025_treatment )
+
+
+#(B1) % new mortality by site and total new mortality
+new_mort_2026_site <- trees_2026 %>%  
+  filter(Site %in% c(treated_sites, untreated_sites)) %>%
+  group_by(Site) %>%
+  summarise(
+    Total_trees = n(),
+    cond6_trees = sum(Tree_condition == 6, na.rm = TRUE),
+    percent_cond6 = 100 * cond6_trees / Total_trees,
+    .groups = "drop") 
+
+new_mort_2026_site <- bind_rows(
+  new_mort_2026_site,
+  new_mort_2026_site %>%
+    summarise(
+      Site = "Total",
+      Total_trees = sum(Total_trees),
+      cond6_trees = sum(cond6_trees),
+      percent_cond6 = 100 * cond6_trees / Total_trees))
+
+  View(new_mort_2026_site)
+
+#View(trees_a)
+
+
+#(C) basic stats/counts
+
+#(C1) count of trees surveyed
+all <- trees_2026 %>%
+summarise(total_trees = n(), .groups = 'drop')
+print(all) #5983 trees surveyed
+
+#(C2) count of living trees surveyed
+all_alive <- trees_2026 %>%
+filter(Tree_condition %in% c(1, 3, 7)) %>% 
+summarise(total_trees = n(), .groups = 'drop')
+print(all_alive) #5035 trees surveyed
+
+#(C3) count of new dead trees surveyed and percentage of live trees
+all_new_mort <- trees_2026 %>%
+filter(Tree_condition %in% c(6)) %>% 
+summarise(total_trees = n(), .groups = 'drop')
+print(all_new_mort) #65 trees surveyed
+
+percent_new_mort <- (all_new_mort$total_trees / all_alive$total_trees) * 100
+print(percent_new_mort) #1.29% new mortality
 
