@@ -88,7 +88,8 @@ View(trees_2026)
 
 living_2026 <- trees_2026 %>%
   filter(Year == 2026, Tree_condition %in% c(1))
-
+living_2025 <- trees_2026 %>%
+  filter(Year == 2026, Tree_condition %in% c(1, 3, 7))
 
 ## (A) Tree density 
 
@@ -124,7 +125,7 @@ tree_density_site <- trees_2026 %>%
   )
 View(tree_density_site)
 
-#(A2) Live tree density/ha by site
+#(A2) Livee tree density by site aka the count of living trees
 live_tree_density_site <- living_2026 %>%
   group_by(Site) %>%
   summarise(Total_Trees = n(), .groups = "drop") %>%
@@ -135,5 +136,29 @@ live_tree_density_site <- living_2026 %>%
 View(live_tree_density_site)
 
 
-#(B) mortality per hectare (treated vs untreated)
+#(B) % new mortality per hectare (treated vs untreated)
+Count_treatment_2026 <- trees_2026 %>%
+mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated"
+  )) %>%
+  group_by(Treatment) %>%
+  summarise(Total_trees = n(), .groups = 'drop')
+
+
+new_mort_2026_treatment <- trees_2026 %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated"
+  )) %>%
+  filter(Site %in% c(treated_sites, untreated_sites)) %>%
+  group_by(Treatment) %>%
+  summarise(
+    Total_trees = n(),
+    cond6_trees = sum(Tree_condition == 6, na.rm = TRUE),
+    percent_cond6 = 100 * cond6_trees / Total_trees,
+    .groups = "drop"
+  )
+
+View(new_mort_2026_treatment )
 
