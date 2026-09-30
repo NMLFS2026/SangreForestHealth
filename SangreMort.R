@@ -2,6 +2,8 @@
 # Sep 30, 2026
 # Mort analysis
 
+# clear environment
+rm(list = ls())
 
 # load libraries
 library(readxl)
