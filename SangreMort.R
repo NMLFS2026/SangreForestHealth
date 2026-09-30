@@ -51,3 +51,7 @@ p1 <- ggplot(mort, aes(Year, rate, color = Treatment)) +
 p1
 
 ggsave("Figures/mortality_spp_trt.png", p1, width = 10, height = 6)
+
+
+
+
