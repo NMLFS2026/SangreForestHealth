@@ -15,6 +15,9 @@ trees <- read_excel("Data/Trees_9_18_26.xlsx")
 # add species
 feat <- left_join(feat, trees[, c("TreeID", "SpeciesID")], by = "TreeID")
 
+# remove duplicate surveys (BTN4-1349 was surveyed twice in 2026)
+feat <- distinct(feat, TreeID, Year, .keep_all = TRUE)
+
 # site is the first part of the tree id
 feat$Site <- sub("-.*", "", feat$TreeID)
 
@@ -32,10 +35,12 @@ yr1 <- feat %>% group_by(Site) %>% summarise(yr1 = min(Year))
 feat <- left_join(feat, yr1, by = "Site")
 feat <- filter(feat, Year > yr1)
 
+
+# species figure - main species only
 spp <- c("PIPO", "ABCO", "PSME", "PIST", "PIED", "QUGA", "QUUN")
-feat <- filter(feat, SpeciesID %in% spp)
 
 mort <- feat %>%
+  filter(SpeciesID %in% spp) %>%
   group_by(SpeciesID, Treatment, Year) %>%
   summarise(dead = sum(dead), alive = sum(alive))
 mort$rate <- mort$dead / mort$alive * 100
@@ -60,7 +65,7 @@ p1
 ggsave("Figures/mortality_spp_trt.png", p1, width = 10, height = 6)
 
 
-# all species together, 2026 only
+# all species together (incl rare ones), 2026 only
 mort26 <- feat %>%
   filter(Year == 2026) %>%
   group_by(Treatment) %>%
@@ -89,7 +94,7 @@ p2
 ggsave("Figures/mortality_trt_2026.png", p2, width = 5, height = 4)
 
 
-# stats - binomial glmm w site as random effect
+# stats - binomial glmm w site as random effect (all species)
 # using 2025 and 2026 bc 2024 only has one treated site
 site <- feat %>%
   filter(Year %in% c(2025, 2026)) %>%
