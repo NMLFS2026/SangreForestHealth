@@ -16,6 +16,8 @@
 # - talk about spatial distance of veg plot to tree and see if that effects the veg composiont : look at by species
 
 # ------------------------- start set up --------------------------------
+View <- function(x, ...) print(x, n = Inf)
+
 knitr::opts_chunk$set(echo = TRUE)
 
 #Directory
@@ -811,6 +813,10 @@ appendix_species_treatment_counts_by_group <- trees_2026 %>%
     Total_Count = n(),
     Live_Count = sum(Tree_condition %in% c(1, 3, 7), na.rm = TRUE),
     New_Death_Count = sum(Tree_condition == 6, na.rm = TRUE),
+    MOG_Live_Count = sum(
+      OGness %in% c(2, 3) & !Tree_condition %in% c(2, 5, 6, 8, 9, 10, 11, 12),
+      na.rm = TRUE
+    ),
     .groups = "drop"
   )
 
@@ -820,6 +826,7 @@ appendix_species_totals <- appendix_species_treatment_counts_by_group %>%
     Total_Count = sum(Total_Count),
     Live_Count = sum(Live_Count),
     New_Death_Count = sum(New_Death_Count),
+    MOG_Live_Count = sum(MOG_Live_Count),
     .groups = "drop"
   ) %>%
   mutate(Treatment = "Total")
@@ -838,7 +845,7 @@ appendix_species_treatment_counts <- bind_rows(
   ) %>%
   select(
     SpeciesID, Treatment, Total_Count, Live_Count,
-    New_Death_Count, New_Death_Percent
+    New_Death_Count, MOG_Live_Count, New_Death_Percent
   )
 
 appendix_all_species_treatment_totals <- appendix_species_treatment_counts_by_group %>%
@@ -847,6 +854,7 @@ appendix_all_species_treatment_totals <- appendix_species_treatment_counts_by_gr
     Total_Count = sum(Total_Count),
     Live_Count = sum(Live_Count),
     New_Death_Count = sum(New_Death_Count),
+    MOG_Live_Count = sum(MOG_Live_Count),
     .groups = "drop"
   ) %>%
   mutate(SpeciesID = "All Species")
@@ -856,6 +864,7 @@ appendix_all_species_total <- appendix_all_species_treatment_totals %>%
     Total_Count = sum(Total_Count),
     Live_Count = sum(Live_Count),
     New_Death_Count = sum(New_Death_Count),
+    MOG_Live_Count = sum(MOG_Live_Count),
     .groups = "drop"
   ) %>%
   mutate(SpeciesID = "All Species", Treatment = "Total")
@@ -932,3 +941,81 @@ species_percentages_by_treatment <- trees_2026 %>%
   arrange(SpeciesID)
 
 View(species_percentages_by_treatment)
+
+
+#(F) Old Growth
+
+#(F1) Mature + og count by treated and untreated / Live Mature + og growth count by treated and untreated
+
+summary_table_MOG <- trees_2026 %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(Treatment)) %>%
+  group_by(Treatment) %>%
+  summarise(
+    `Tree count` = n(),  # total trees
+    `MOG count` = sum(OGness %in% c(2,3), na.rm = TRUE),  # trees where OGness = 2 or 3
+    `MOG live count` = sum(OGness %in% c(2,3) & !Tree_condition %in% c(2,5,6,8,9,10,11,12), na.rm = TRUE),
+    `Surveyed ha` = 3  # fixed value for both
+  )
+print(summary_table_MOG)
+
+#(F2) plot of Mog overall and live density by treatment with standard error bars
+mog_counts_by_site <- trees_2026 %>%
+  filter(Site %in% site_info$Site) %>%
+  group_by(Site) %>%
+  summarise(
+    MOG_Count = sum(OGness %in% c(2, 3), na.rm = TRUE),
+    MOG_Live_Count = sum(OGness %in% c(2, 3) & Tree_condition %in% c(1, 3, 7),
+                         na.rm = TRUE),
+    .groups = "drop"
+  )
+
+mog_site <- site_info %>%
+  left_join(mog_counts_by_site, by = "Site") %>%
+  mutate(across(c(MOG_Count, MOG_Live_Count), ~ replace_na(.x, 0L)))
+
+# actual density = total trees / total hectares per treatment
+mog_density_by_treatment <- mog_site %>%
+  group_by(Treatment) %>%
+  summarise(
+    Total_Area_ha = sum(Plot_Area_ha),
+    `Mature Old Growth Density` = sum(MOG_Count) / Total_Area_ha,
+    `Live Mature Old Growth Density` = sum(MOG_Live_Count) / Total_Area_ha,
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = c(`Mature Old Growth Density`, `Live Mature Old Growth Density`),
+    names_to = "Tree_Status",
+    values_to = "Density_ha"
+  ) %>%
+  mutate(
+    Treatment = factor(Treatment, levels = c("Treated", "Untreated")),
+    Tree_Status = factor(Tree_Status,
+                         levels = c("Mature Old Growth Density", "Live Mature Old Growth Density"))
+  )
+
+print(mog_density_by_treatment)  # check: ~143.3 / 164.0 and ~123.7 / 129.7
+
+mog_density_by_treatment_plot <- ggplot(
+  mog_density_by_treatment,
+  aes(x = Treatment, y = Density_ha, fill = Treatment)
+) +
+  geom_col(width = 0.5, color = "black", linewidth = 0.3) +
+  facet_wrap(~ Tree_Status, nrow = 1) +
+  scale_fill_manual(values = c("Treated" = "#CC5500", "Untreated" = "grey60")) +
+  labs(x = NULL, y = "Trees per hectare") +
+  theme_classic(base_size = 16) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(size = 18, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 18),
+    axis.text = element_text(size = 16),
+    legend.position = "none"
+  )
+
+ggsave("Figures/mog_density_by_treatment.png",
+       mog_density_by_treatment_plot, width = 10, height = 5, dpi = 300)
