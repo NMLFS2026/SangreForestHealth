@@ -15,6 +15,101 @@
 #           - og <- we're not going to do that bc we didn't talk about it // replace with mortality factors
 # - talk about spatial distance of veg plot to tree and see if that effects the veg composiont : look at by species
 
+# ------------------------- start set up --------------------------------
+View <- function(x, ...) print(x, n = Inf)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+#Directory
+data_dir <- "/workspaces/SangreForestHealth/Data"
+stopifnot(dir.exists(data_dir))
+
+#Packages
+required_pkgs <- c("dplyr", "ggplot2", "openxlsx", "tidyr", "stringr", "vegan",
+                   "readr", "scales", "gridExtra", "grid", "purrr",
+                   "writexl", "RColorBrewer", "gtable") #removed patchwork
+
+missing_pkgs <- setdiff(required_pkgs, rownames(installed.packages()))
+if (length(missing_pkgs) > 0) {
+  install.packages(missing_pkgs, repos = "https://cloud.r-project.org")
+}
+invisible(lapply(required_pkgs, library, character.only = TRUE))
+
+#Tree_features
+tree_features <- read.xlsx(file.path(data_dir, "Tree_features_9_18_26.xlsx"))
+
+#Trees table
+trees_table <- read.xlsx(file.path(data_dir, "Trees_9_18_26.xlsx"))
+
+trees_a <- tree_features %>%
+  #filter(Year == 2026) %>%
+  mutate(Site = str_extract(TreeID, "^[^-]+")) %>% #make a site col
+  left_join(trees_table, by = "TreeID") %>% #combine tables
+  select(TreeID, Date, Site, SpeciesID, DBH = Diameter,  OG = Old_growth, Tree_condition, Year) %>% 
+  mutate(OGness = case_when(  #classification system by Ben Muher
+    (is.na(OG) | OG == "") & DBH > 30 ~ 3, #trees with missing OG data and DBH > 30 are assigned 3
+    is.na(OG) | OG == "" ~ 1, #trees with missing OG data and DBH <= 30 are assigned 1
+    toupper(OG) == "Y" ~ 2, #trees with OG = Y are assigned 2
+    TRUE ~ NA_real_ # all other trees DBH <= 30 are assigned NA
+  ))
+
+  trees_b <- trees_a %>%
+ mutate(Date_parsed = as.Date(Date, format = "%m/%d/%Y")) %>%
+  arrange(TreeID, Date_parsed) %>%
+  group_by(TreeID) %>%
+  fill(DBH, .direction = "downup") %>%
+  ungroup() %>%
+  select(-Date_parsed) %>%
+  #recalculate OGness based on the updated DBH values
+  mutate(OGness = case_when(
+    (is.na(OG) | OG == "") & DBH > 30 ~ 3,
+    is.na(OG) | OG == "" ~ 1,
+    toupper(OG) == "Y" ~ 2,
+    TRUE ~ NA_real_
+  ))
+  
+#View(trees_b) #invalid date means this tree was never measured for DBH
+
+#option 2: averaging all recorded dbh measurements and then applying 
+# to all rows to calc OGness (don't see any changes over time)
+
+trees_c <- trees_a %>%
+  mutate(
+    Date_parsed = as.Date(Date, format = "%m/%d/%Y"),
+    DBH = suppressWarnings(as.numeric(DBH))
+  ) %>%
+  group_by(TreeID) %>%
+  mutate(
+    DBH_mean = mean(DBH, na.rm = TRUE),
+    DBH = ifelse(is.na(DBH), DBH_mean, DBH),
+    DBH = ifelse(is.na(DBH_mean), NA_real_, DBH)
+  ) %>%
+  ungroup() %>%
+  select(-Date_parsed, -DBH_mean) %>%
+  mutate(OGness = case_when(
+    (is.na(OG) | OG == "") & DBH > 30 ~ 3,
+    is.na(OG) | OG == "" ~ 1,
+    toupper(OG) == "Y" ~ 2,
+    TRUE ~ NA_real_
+  ))
+
+#View(trees_c)
+
+#option 0: not filling in the dbh values 
+#trees_2026 <- trees_a %>%
+#  filter(Year == 2026) 
+
+#option 1: down/up filling dbh 
+trees_2026 <- trees_b %>%
+  filter(Year == 2026)
+
+#option 2: averaging all recorded dbh measurements (ben method?)
+#trees_2026 <- trees_c %>%
+#  filter(Year == 2026)
+
+
+# -------------------------- end set up --------------------------------
+
 ## list for use later!
 # version 3: codes to common name 
 #abco - white fir
@@ -65,6 +160,14 @@ trees_over_time_plot <- ggplot(
 
 treated_sites <- c("SFF1", "SFF5", "SFF7", "SFF8", "SFF10", "SFS4")
 untreated_sites <- c("SFF2", "SFF3", "SFF4", "SFF6", "SFF9", "BTN4")
+
+species_order <- c(
+  "ABCO", "PSME",           # firs
+  "PIST", "PIPO", "PIED",   # pines
+  "JUSC", "JUMO",           # junipers
+  "QUUN", "QUGA",           # oaks
+  "ACGL", "POTR", "SASC", "PRVI"  # all else
+)
 
 #as table
 tree_counts_timeseries <- tree_counts_over_time %>%
@@ -265,8 +368,13 @@ View(density_by_treatment)
 
 #(B) Mortality 
 
+#9/30 talked to ellis - the oaks resprout too much and the sprouts
+# are not categorized as 'living' so this inflates the new mort
+trees_2026_no_oaks <- trees_2026 %>%
+   filter(!SpeciesID %in% c("QUUN", "QUGA"))
+
 #(B0) % new mortality per hectare (treated vs untreated)
-Count_treatment_2026 <- trees_2026 %>%
+Count_treatment_2026 <- trees_2026_no_oaks %>%
 mutate(Treatment = case_when(
     Site %in% treated_sites ~ "Treated",
     Site %in% untreated_sites ~ "Untreated"
@@ -275,7 +383,7 @@ mutate(Treatment = case_when(
   summarise(Total_trees = n(), .groups = 'drop')
 
 
-new_mort_2026_treatment <- trees_2026 %>%
+new_mort_2026_treatment <- trees_2026_no_oaks %>%
   mutate(Treatment = case_when(
     Site %in% treated_sites ~ "Treated",
     Site %in% untreated_sites ~ "Untreated"
@@ -288,7 +396,7 @@ new_mort_2026_treatment <- trees_2026 %>%
     percent_cond6 = 100 * cond6_trees / Total_trees,
     .groups = "drop")
 
-View(new_mort_2026_treatment)
+print(new_mort_2026_treatment)
 
 #checking against the 2025 data
 new_mort_2025_treatment <- trees_2025 %>%
@@ -308,7 +416,7 @@ new_mort_2025_treatment <- trees_2025 %>%
 
 
 #(B1) % new mortality by site and total new mortality
-new_mort_2026_site <- trees_2026 %>%  
+new_mort_2026_site <- trees_2026_no_oaks %>%  
   filter(Site %in% c(treated_sites, untreated_sites)) %>%
   group_by(Site) %>%
   summarise(
@@ -326,7 +434,7 @@ new_mort_2026_site <- bind_rows(
       cond6_trees = sum(cond6_trees),
       percent_cond6 = 100 * cond6_trees / Total_trees))
 
-  View(new_mort_2026_site)
+print(new_mort_2026_site)
 
 #View(trees_a)
 
@@ -349,19 +457,12 @@ new_mort_dbh_species_by_treatment <- trees_2026 %>%
     Site %in% treated_sites ~ "Treated",
     Site %in% untreated_sites ~ "Untreated"
   )) %>%
+  filter(!SpeciesID %in% c("QUUN", "QUGA")) %>% # they resprout too much to be 'dead'
   mutate(SpeciesID = factor(SpeciesID, levels = species_order))
 
 #View(live_species_by_treatment)
 
 #plot prep
-species_order <- c(
-  "ABCO", "PSME",           # firs
-  "PIST", "PIPO", "PIED",   # pines
-  "JUSC", "JUMO",           # junipers
-  "QUUN", "QUGA",           # oaks
-  "ACGL", "POTR", "SASC", "PRVI"  # all else
-)
-
 species_colors <- c(
   # firs: steel blue -> soft sky
   ABCO = "#2F5D8C", PSME = "#8DB8D9",
@@ -421,13 +522,13 @@ summarise(total_trees = n(), .groups = 'drop')
 print(all_alive) #5035 trees surveyed
 
 #(C3) count of new dead trees surveyed and percentage of live trees
-all_new_mort <- trees_2026 %>%
+all_new_mort <- trees_2026_no_oaks %>%
 filter(Tree_condition %in% c(6)) %>% 
 summarise(total_trees = n(), .groups = 'drop')
-print(all_new_mort) #65 trees surveyed
+print(all_new_mort) #65 trees surveyed w/ oaks, 28 w/out oaks
 
 percent_new_mort <- (all_new_mort$total_trees / all_alive$total_trees) * 100
-print(percent_new_mort) #1.29% new mortality
+print(percent_new_mort) #1.29% new mortality w/oaks, 0.56 % w/out oaks
 
 #(C4) count of trees in treated and untreated
 all_treatment <- trees_2026 %>%
@@ -572,14 +673,6 @@ species_counts_a <- species_counts %>%
 
 #version 2:codes
 
-species_order <- c(
-  "ABCO", "PSME",           # firs
-  "PIST", "PIPO", "PIED",   # pines
-  "JUSC", "JUMO",           # junipers
-  "QUUN", "QUGA",           # oaks
-  "ACGL", "POTR", "SASC", "PRVI"  # all else
-)
-
 species_colors <- c(
   # firs: steel blue -> soft sky
   ABCO = "#2F5D8C", PSME = "#8DB8D9",
@@ -720,6 +813,10 @@ appendix_species_treatment_counts_by_group <- trees_2026 %>%
     Total_Count = n(),
     Live_Count = sum(Tree_condition %in% c(1, 3, 7), na.rm = TRUE),
     New_Death_Count = sum(Tree_condition == 6, na.rm = TRUE),
+    MOG_Live_Count = sum(
+      OGness %in% c(2, 3) & !Tree_condition %in% c(2, 5, 6, 8, 9, 10, 11, 12),
+      na.rm = TRUE
+    ),
     .groups = "drop"
   )
 
@@ -729,6 +826,7 @@ appendix_species_totals <- appendix_species_treatment_counts_by_group %>%
     Total_Count = sum(Total_Count),
     Live_Count = sum(Live_Count),
     New_Death_Count = sum(New_Death_Count),
+    MOG_Live_Count = sum(MOG_Live_Count),
     .groups = "drop"
   ) %>%
   mutate(Treatment = "Total")
@@ -747,7 +845,7 @@ appendix_species_treatment_counts <- bind_rows(
   ) %>%
   select(
     SpeciesID, Treatment, Total_Count, Live_Count,
-    New_Death_Count, New_Death_Percent
+    New_Death_Count, MOG_Live_Count, New_Death_Percent
   )
 
 appendix_all_species_treatment_totals <- appendix_species_treatment_counts_by_group %>%
@@ -756,6 +854,7 @@ appendix_all_species_treatment_totals <- appendix_species_treatment_counts_by_gr
     Total_Count = sum(Total_Count),
     Live_Count = sum(Live_Count),
     New_Death_Count = sum(New_Death_Count),
+    MOG_Live_Count = sum(MOG_Live_Count),
     .groups = "drop"
   ) %>%
   mutate(SpeciesID = "All Species")
@@ -765,6 +864,7 @@ appendix_all_species_total <- appendix_all_species_treatment_totals %>%
     Total_Count = sum(Total_Count),
     Live_Count = sum(Live_Count),
     New_Death_Count = sum(New_Death_Count),
+    MOG_Live_Count = sum(MOG_Live_Count),
     .groups = "drop"
   ) %>%
   mutate(SpeciesID = "All Species", Treatment = "Total")
@@ -841,3 +941,81 @@ species_percentages_by_treatment <- trees_2026 %>%
   arrange(SpeciesID)
 
 View(species_percentages_by_treatment)
+
+
+#(F) Old Growth
+
+#(F1) Mature + og count by treated and untreated / Live Mature + og growth count by treated and untreated
+
+summary_table_MOG <- trees_2026 %>%
+  mutate(Treatment = case_when(
+    Site %in% treated_sites ~ "Treated",
+    Site %in% untreated_sites ~ "Untreated",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(Treatment)) %>%
+  group_by(Treatment) %>%
+  summarise(
+    `Tree count` = n(),  # total trees
+    `MOG count` = sum(OGness %in% c(2,3), na.rm = TRUE),  # trees where OGness = 2 or 3
+    `MOG live count` = sum(OGness %in% c(2,3) & !Tree_condition %in% c(2,5,6,8,9,10,11,12), na.rm = TRUE),
+    `Surveyed ha` = 3  # fixed value for both
+  )
+print(summary_table_MOG)
+
+#(F2) plot of Mog overall and live density by treatment with standard error bars
+mog_counts_by_site <- trees_2026 %>%
+  filter(Site %in% site_info$Site) %>%
+  group_by(Site) %>%
+  summarise(
+    MOG_Count = sum(OGness %in% c(2, 3), na.rm = TRUE),
+    MOG_Live_Count = sum(OGness %in% c(2, 3) & Tree_condition %in% c(1, 3, 7),
+                         na.rm = TRUE),
+    .groups = "drop"
+  )
+
+mog_site <- site_info %>%
+  left_join(mog_counts_by_site, by = "Site") %>%
+  mutate(across(c(MOG_Count, MOG_Live_Count), ~ replace_na(.x, 0L)))
+
+# actual density = total trees / total hectares per treatment
+mog_density_by_treatment <- mog_site %>%
+  group_by(Treatment) %>%
+  summarise(
+    Total_Area_ha = sum(Plot_Area_ha),
+    `Mature Old Growth Density` = sum(MOG_Count) / Total_Area_ha,
+    `Live Mature Old Growth Density` = sum(MOG_Live_Count) / Total_Area_ha,
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = c(`Mature Old Growth Density`, `Live Mature Old Growth Density`),
+    names_to = "Tree_Status",
+    values_to = "Density_ha"
+  ) %>%
+  mutate(
+    Treatment = factor(Treatment, levels = c("Treated", "Untreated")),
+    Tree_Status = factor(Tree_Status,
+                         levels = c("Mature Old Growth Density", "Live Mature Old Growth Density"))
+  )
+
+print(mog_density_by_treatment)  # check: ~143.3 / 164.0 and ~123.7 / 129.7
+
+mog_density_by_treatment_plot <- ggplot(
+  mog_density_by_treatment,
+  aes(x = Treatment, y = Density_ha, fill = Treatment)
+) +
+  geom_col(width = 0.5, color = "black", linewidth = 0.3) +
+  facet_wrap(~ Tree_Status, nrow = 1) +
+  scale_fill_manual(values = c("Treated" = "#CC5500", "Untreated" = "grey60")) +
+  labs(x = NULL, y = "Trees per hectare") +
+  theme_classic(base_size = 16) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(size = 18, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 18),
+    axis.text = element_text(size = 16),
+    legend.position = "none"
+  )
+
+ggsave("Figures/mog_density_by_treatment.png",
+       mog_density_by_treatment_plot, width = 10, height = 5, dpi = 300)
